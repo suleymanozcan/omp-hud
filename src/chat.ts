@@ -77,9 +77,10 @@ export function clipChatText(text: string, max = CHAT_TEXT_MAX): string {
   return `${text.slice(0, head)}\n…\n${text.slice(text.length - (max - head - 3))}`;
 }
 
-/** Sanitized and clipped. */
+/** Sanitized and clipped. Texts far beyond the cap are cut first so that a huge stream stays cheap to clean at every update. */
 export function cleanChatText(raw: string): string {
-  return clipChatText(sanitizeChatText(raw));
+  const bounded = raw.length > CHAT_TEXT_MAX * 4 ? `${raw.slice(0, CHAT_TEXT_MAX)}\n${raw.slice(raw.length - CHAT_TEXT_MAX * 3)}` : raw;
+  return clipChatText(sanitizeChatText(bounded));
 }
 
 /** Comparable form of a message text (pending matching): whitespace collapsed. */

@@ -1,6 +1,6 @@
 // omp HUD extension: sci-fi style main-agent core + subagent nodes + live feed.
 // Default view: the dock, a short panel next to the editor (you keep typing). Commands: /hud (dock on/off),
-// /hud full, /hud size, /hud place, /hud demo [off|full], /hud compact [on|off], /hud status [on|off],
+// /hud full (full screen with a conversation panel and a prompt: write to omp without leaving it), /hud size, /hud place, /hud demo [off|full], /hud compact [on|off], /hud status [on|off],
 // /hud pad [0-3], /hud lang [tr|en|auto], /hud doctor, /hud help.
 import type { ExtensionAPI, ExtensionContext, RegisteredCommand, Theme } from "@oh-my-pi/pi-coding-agent";
 import type { Component, TUI } from "@oh-my-pi/pi-tui";

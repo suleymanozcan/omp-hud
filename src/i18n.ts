@@ -60,9 +60,6 @@ const tr = {
   "detail.currentTool": "güncel araç",
   "detail.error": "hata",
 
-  "hint.detail": "Esc ayrıntıyı kapat · ←/→ düğüm",
-  "hint.selected": "Esc kapat · ←/→ düğüm · Enter ayrıntı · c temizle",
-  "hint.base": "Esc kapat · ←/→ düğüm · Enter ayrıntı",
   "tooSmall": "terminal çok küçük (en az {w}x{h})",
 
   "sub.running": "başladı",
@@ -87,7 +84,7 @@ const tr = {
   "cmd.help":
     "omp-hud komutları:\n" +
     "  /hud              dock'u editörün yanında aç/kapat (varsayılan; yazmaya devam edebilirsiniz)\n" +
-    "  /hud full         tam ekran HUD (Esc ile çıkış; açıkken yazılamaz)\n" +
+    "  /hud full         tam ekran HUD: sohbet paneli ve girdi kutusuyla (Esc ile çıkış)\n" +
     "  /hud size         dock boyutu: small | medium | large; şimdi {size}\n" +
     "  /hud place        dock yeri: above | below (editörün üstü | altı); şimdi {place}\n" +
     "  /hud demo         dock'ta sahte olay akışı (yeniden ya da `off` durdurur; `full` = tam ekran)\n" +
@@ -271,9 +268,6 @@ const en: Record<MsgKey, string> = {
   "detail.currentTool": "current tool",
   "detail.error": "error",
 
-  "hint.detail": "Esc close details · ←/→ node",
-  "hint.selected": "Esc close · ←/→ node · Enter details · c clear",
-  "hint.base": "Esc close · ←/→ node · Enter details",
   "tooSmall": "terminal too small (min {w}x{h})",
 
   "sub.running": "started",
@@ -296,7 +290,7 @@ const en: Record<MsgKey, string> = {
   "cmd.help":
     "omp-hud commands:\n" +
     "  /hud              show/hide the dock next to the editor (default; you can keep typing)\n" +
-    "  /hud full         full-screen HUD (Esc to close; no typing while open)\n" +
+    "  /hud full         full-screen HUD with a chat panel and a prompt (Esc to close)\n" +
     "  /hud size         dock size: small | medium | large; now {size}\n" +
     "  /hud place        dock place: above | below the editor; now {place}\n" +
     "  /hud demo         simulated events in the dock (again or `off` stops; `full` = full screen)\n" +

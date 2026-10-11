@@ -34,7 +34,7 @@ Options:
   --dock           render the dock (panel above the editor) instead of the fullscreen HUD
   --size S         dock size: small (6 rows) | medium (9, default) | large (12); capped by --rows
   --rows R         terminal rows the dock height is derived from (default 40)
-  --live           watch live in a real terminal on the alternate screen (~15 fps; Esc / q / Ctrl-C quits)
+  --live           watch live in a real terminal on the alternate screen (~15 fps; Esc / Ctrl-C quits; the prompt works, sent text only lands in the conversation)
   --help           this help
 
 Language: set OMP_HUD_LANG=en or OMP_HUD_LANG=tr.
@@ -329,7 +329,10 @@ async function runLive(args: Args): Promise<void> {
   };
 
   let reqRows = size().h;
-  const hud = new L.FullHud(store, theme, () => {}, () => quit(0), () => reqRows);
+  const hud = new L.FullHud(store, theme, () => {}, () => quit(0), () => reqRows, {
+    send: (text) => void store.addChat({ role: "user", text }),
+    command: () => {},
+  });
   p.on("exit", restore);
   p.on("SIGINT", () => quit(0));
   p.on("SIGTERM", () => quit(0));
@@ -344,7 +347,7 @@ async function runLive(args: Args): Promise<void> {
   p.stdin.resume();
   p.stdin.on("data", (chunk) => {
     const s = chunk.toString();
-    if (s === "q" || s === "Q" || s === "\x1b" || s === "\x03") quit(0);
+    if (s === "\x03") quit(0); // Esc is handled by the HUD itself (it clears the prompt first); letters go to the prompt
     try {
       hud.handleInput?.(s);
     } catch {

@@ -105,7 +105,7 @@ export class InputLine {
     if (matchesKey(data, "home") || matchesKey(data, "ctrl+a")) return this.move(0);
     if (matchesKey(data, "end")) return this.move(this.chars.length);
     if (matchesKey(data, "ctrl+e")) return this.move(this.chars.length);
-    if (matchesKey(data, "ctrl+u")) return this.edit(this.cursor > 0, () => this.splice(0, this.cursor, []));
+    if (matchesKey(data, "ctrl+u")) return this.edit(this.chars.length > 0, () => this.splice(0, this.chars.length, []));
     if (matchesKey(data, "ctrl+k")) return this.edit(this.cursor < this.chars.length, () => this.splice(this.cursor, this.chars.length - this.cursor, []));
     if (matchesKey(data, "ctrl+w")) return this.edit(this.cursor > 0, () => this.deleteWord());
     if (matchesKey(data, "up")) return this.recall(-1);

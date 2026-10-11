@@ -32,6 +32,7 @@ function makePi() {
   const handlers = new Map<string, Handler[]>();
   const channels = new Map<string, Array<(p: unknown) => void>>();
   const commands = new Map<string, Cmd>();
+  const sent: Array<{ text: string; deliverAs?: string }> = [];
   const pi = {
     on(event: string, fn: Handler) {
       const list = handlers.get(event) ?? [];
@@ -40,6 +41,9 @@ function makePi() {
     },
     registerCommand(name: string, cmd: Cmd) {
       commands.set(name, cmd);
+    },
+    sendUserMessage(text: string, options?: { deliverAs?: string }) {
+      sent.push({ text, deliverAs: options?.deliverAs });
     },
     events: {
       on(channel: string, fn: (p: unknown) => void) {
@@ -58,6 +62,7 @@ function makePi() {
     pi: pi as unknown as ExtensionAPI,
     commands,
     handlerCount: (event: string) => handlers.get(event)?.length ?? 0,
+    sent,
     channelCount: (channel: string) => channels.get(channel)?.length ?? 0,
     async emit(event: string, payload: unknown, ctx: unknown) {
       for (const fn of handlers.get(event) ?? []) await fn(payload, ctx);
@@ -82,6 +87,7 @@ function makeCtx(opts: { agent?: Record<string, unknown>; hasUI?: boolean; mode?
   const tui = { renders: 0, requestRender() { this.renders++; }, terminal: { rows: 24, columns: 100 } };
   const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t };
   const custom: { factory?: (...a: unknown[]) => { render(w: number): readonly string[]; dispose?(): void }; done?: (r: unknown) => void; options?: { overlay?: boolean; overlayOptions?: { fullscreen?: boolean } }; opened: number } = { opened: 0 };
+  const idle = { value: true };
   const ctx = {
     hasUI: opts.hasUI ?? true,
     mode: opts.mode ?? "tui",
@@ -89,6 +95,7 @@ function makeCtx(opts: { agent?: Record<string, unknown>; hasUI?: boolean; mode?
     agent: opts.agent ?? { kind: "main", id: "main", name: "main", depth: 0 },
     sessionManager: { getBranch: (): unknown[] => opts.branch ?? [] },
     getContextUsage: (): { tokens: number; contextWindow: number; percent: number } | undefined => (opts.ctxPercent === undefined ? undefined : { tokens: 10, contextWindow: 100, percent: opts.ctxPercent }),
+    isIdle: () => idle.value,
     setInterval(fn: () => void, ms: number) {
       timers.push({ fn, ms, active: true });
       return timers.length - 1;
@@ -122,6 +129,7 @@ function makeCtx(opts: { agent?: Record<string, unknown>; hasUI?: boolean; mode?
   };
   return {
     ctx,
+    idle,
     tui,
     theme,
     custom,
@@ -555,6 +563,326 @@ check("/hud status off: no timers again", M.activeMs().length === 0, M.activeMs(
   demoFull.dispose?.();
   check("after the demo closes, stop(): no timers left", M.activeMs().length === 0, M.activeMs());
   check("demo does not disturb the real store", compact.render(100).join("\n") === rowsBeforeDemo);
+}
+
+// ---------------------------------------------------------------- 4) full screen chat
+console.log("[chat: store]");
+const plain = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
+{
+  const s = createStore();
+  const id = s.addChat({ role: "user", text: "hello \x1b[31mred\x1b[0m\x07\x1b]0;title\x07 ok" });
+  check("chat: ANSI and control characters are removed", s.state.chat?.[0]?.text === "hello red ok", s.state.chat?.[0]?.text);
+  const v = s.version;
+  const rev = s.state.chatRev ?? 0;
+  s.updateChat(id, { text: "hello red ok!" });
+  check("chat: a text update bumps chatRev but not the store version", s.version === v && (s.state.chatRev ?? 0) === rev + 1, [s.version, v]);
+  s.updateChat(id, { pending: "queued" });
+  check("chat: a pending change bumps the version", s.version === v + 1);
+  for (let i = 0; i < 45; i++) s.addChat({ role: "assistant", text: `m${i}` });
+  check("chat: ring buffer keeps 40 messages", s.state.chat?.length === 40 && s.state.chat[39]?.text === "m44", s.state.chat?.length);
+  const big = s.addChat({ role: "assistant", text: "a".repeat(30000) });
+  const bigMsg = s.state.chat?.find((m) => m.id === big);
+  check("chat: a very long message is clipped (head and tail kept)", (bigMsg?.text.length ?? 0) <= 12 * 1024 && bigMsg?.text.includes("\n…\n") === true, bigMsg?.text.length);
+  const s2 = createStore();
+  s2.addChat({ role: "user", text: "queued one", pending: "queued" });
+  s2.addChat({ role: "assistant", text: "reply", streaming: true });
+  check("chat: resolvePending matches by text (whitespace-insensitive)", s2.resolvePendingChat("  queued   one "));
+  check("chat: a resolved message moves behind the running reply and loses its tag", s2.state.chat?.at(-1)?.text === "queued one" && s2.state.chat.at(-1)?.pending === undefined, s2.state.chat?.map((m) => m.text));
+  check("chat: resolvePending without a match is false", !s2.resolvePendingChat("nope"));
+  s2.addChat({ role: "user", text: "stale", pending: "queued", t: Date.now() - 10_000 });
+  s2.addChat({ role: "user", text: "fresh", pending: "queued" });
+  s2.expirePendingChat(3000);
+  check("chat: expirePending drops only old pending messages", s2.state.chat?.some((m) => m.text === "stale") === false && s2.state.chat.some((m) => m.text === "fresh"));
+  s2.reset();
+  check("chat: reset empties the conversation", s2.state.chat?.length === 0);
+}
+
+console.log("[chat: collector]");
+{
+  const s = createStore();
+  const h = makePi();
+  attachCollector(h.pi, s);
+  const c = makeCtx({
+    branch: [
+      { type: "message", message: { role: "user", content: "hi there" } },
+      { type: "message", message: { role: "assistant", content: [{ type: "thinking", thinking: "secret" }, { type: "text", text: "hello!" }, { type: "toolCall", name: "read" }] } },
+      { type: "message", message: { role: "toolResult", content: [{ type: "text", text: "tool output" }] } },
+      { type: "custom_message", content: "ignored" },
+    ],
+  });
+  await h.emit("session_start", {}, c.ctx);
+  const texts = s.state.chat?.map((m) => `${m.role}:${m.text}`);
+  check("session_start loads user/assistant text from the branch (no thinking, tool results or custom entries)", texts?.join("|") === "user:hi there|assistant:hello!", texts);
+  s.addChat({ role: "user", text: "typed in the HUD", pending: "sending" });
+  const before = s.state.chat?.length;
+  await h.emit("message_start", { message: { role: "user", content: [{ type: "text", text: "typed in the HUD" }] } }, c.ctx);
+  check("a user message that omp reports resolves the pending one (no duplicate)", s.state.chat?.length === before && s.state.chat?.at(-1)?.pending === undefined, s.state.chat?.map((m) => m.text));
+  await h.emit("message_start", { message: { role: "user", content: "from the editor" } }, c.ctx);
+  check("a user message from the editor is added", s.state.chat?.at(-1)?.text === "from the editor");
+  await h.emit("message_start", { message: { role: "assistant", content: [] } }, c.ctx);
+  const n0 = s.state.chat?.length;
+  await h.emit("message_update", { message: { role: "assistant", content: [{ type: "thinking", thinking: "private" }] } }, c.ctx);
+  check("thinking blocks never reach the chat", s.state.chat?.length === n0);
+  await h.emit("message_update", { message: { role: "assistant", content: [{ type: "text", text: "Hel" }] } }, c.ctx);
+  const a = s.state.chat?.at(-1);
+  check("first streamed text creates a streaming assistant message", a?.role === "assistant" && a.text === "Hel" && a.streaming === true, a);
+  const v = s.version;
+  await h.emit("message_update", { message: { role: "assistant", content: [{ type: "text", text: "Hello wor" }] } }, c.ctx);
+  check("streaming updates are coalesced (~8 Hz) and do not bump the store version", s.state.chat?.at(-1)?.text === "Hel" && s.version === v, [s.state.chat?.at(-1)?.text, s.version - v]);
+  await sleep(140);
+  await h.emit("message_update", { message: { role: "assistant", content: [{ type: "text", text: "Hello wor" }] } }, c.ctx);
+  check("an update after the coalescing window is applied", s.state.chat?.at(-1)?.text === "Hello wor");
+  await h.emit("message_end", { message: { role: "assistant", content: [{ type: "text", text: "Hello world" }, { type: "toolCall", name: "read" }] } }, c.ctx);
+  const done = s.state.chat?.at(-1);
+  check("message_end writes the full text and stops streaming", done?.text === "Hello world" && done.streaming === false, done);
+  const n1 = s.state.chat?.length;
+  await h.emit("message_start", { message: { role: "assistant", content: [] } }, c.ctx);
+  await h.emit("message_update", { message: { role: "assistant", content: [{ type: "toolCall", name: "read" }] } }, c.ctx);
+  await h.emit("message_end", { message: { role: "assistant", content: [{ type: "toolCall", name: "read" }] } }, c.ctx);
+  check("an assistant message with tool calls only leaves no trace", s.state.chat?.length === n1, s.state.chat?.length);
+  const subCtx = makeCtx({ agent: { kind: "sub", id: "x", name: "task", depth: 1 } }).ctx;
+  await h.emit("message_start", { message: { role: "user", content: "subagent prompt" } }, subCtx);
+  check("subagent messages are not shown", s.state.chat?.length === n1);
+  s.addChat({ role: "user", text: "never reported", pending: "queued", t: Date.now() - 10_000 });
+  await h.emit("agent_end", { messages: [] }, c.ctx);
+  check("agent_end drops stale pending messages", s.state.chat?.some((m) => m.text === "never reported") === false);
+  await h.emit("session_switch", {}, c.ctx);
+  check("session_switch resets and reloads the conversation", s.state.chat?.length === 2, s.state.chat?.length);
+}
+
+console.log("[chat: input line]");
+const { InputLine } = await import("../src/components/input-line.ts");
+const { renderChat } = await import("../src/render/chat.ts");
+const { FullHud } = await import("../src/components/full-hud.ts");
+const { newChatView } = await import("../src/chat.ts");
+const { vw } = await import("../src/util/text.ts");
+const tagTheme = { fg: (c: string, t: string) => `<${c}>${t}</${c}>`, bold: (t: string) => t, truecolor: false };
+const noTheme = { fg: (_c: string, t: string) => t, bold: (t: string) => t, truecolor: false };
+{
+  const typeIn = (l: InstanceType<typeof InputLine>, s: string) => {
+    for (const ch of s) l.handleInput(ch);
+  };
+  const l = new InputLine();
+  typeIn(l, "merhaba ğüşiöç");
+  check("input: typed text with Turkish letters", l.text === "merhaba ğüşiöç", l.text);
+  l.handleInput("\x1b[D");
+  l.handleInput("\x1b[D");
+  l.handleInput("X");
+  check("input: left, left, insert", l.text === "merhaba ğüşiXöç", l.text);
+  l.handleInput("\x7f");
+  l.handleInput("\x1b[3~");
+  check("input: backspace and delete", l.text === "merhaba ğüşiç", l.text);
+  l.handleInput("\x1b[H");
+  l.handleInput(">");
+  check("input: Home then insert", l.text === ">merhaba ğüşiç");
+  l.handleInput("\x05");
+  l.handleInput("\x17");
+  check("input: Ctrl+E then Ctrl+W deletes the last word", l.text === ">merhaba ", l.text);
+  l.handleInput("\x15");
+  check("input: Ctrl+U clears the line", l.isEmpty);
+  const r1 = l.handleInput("\x1b[200~a\nb\tc\x1b[201~");
+  check("input: bracketed paste is one edit, line breaks become spaces", r1.kind === "edit" && l.text === "a b c", l.text);
+  l.clear();
+  l.handleInput("\x1b[200~ab");
+  check("input: a paste split over chunks is read as text, not keys", l.pasting && l.text === "");
+  const r2 = l.handleInput("\t\x1b[201~\r");
+  check("input: the end of a split paste, then Enter in the same chunk, submits", r2.kind === "submit" && r2.text === "ab" && !l.pasting, [r2, l.text]);
+  typeIn(l, "one");
+  l.handleInput("\r");
+  typeIn(l, "two");
+  const sub = l.handleInput("\x1b\r");
+  check("input: Enter submits, Alt+Enter submits as steer", sub.kind === "submit" && sub.text === "two" && sub.steer === true && l.isEmpty, sub);
+  typeIn(l, "draft");
+  l.handleInput("\x1b[A");
+  check("input: Up recalls the newest history entry", l.text === "two");
+  l.handleInput("\x1b[A");
+  check("input: Up again goes further back", l.text === "one");
+  l.handleInput("\x1b[B");
+  l.handleInput("\x1b[B");
+  check("input: Down returns to the draft", l.text === "draft", l.text);
+  check("input: an unknown sequence is left to the owner", l.handleInput("\x1b[99~").kind === "none");
+  l.clear();
+  l.handleInput("\x1b[97u");
+  l.handleInput("\x1b[98;2u");
+  check("input: kitty printable keys", l.text === "aB", l.text);
+  l.clear();
+  typeIn(l, "x".repeat(120));
+  const row = l.render(40, noTheme, "ph");
+  check("input: render is exactly the width and shows the end with the cursor", vw(row) === 40 && row.includes("\x1b[7m \x1b[27m") && row.startsWith("❯ …"), [vw(row), row]);
+  for (let i = 0; i < 90; i++) l.handleInput("\x1b[D");
+  const mid = l.render(40, noTheme, "ph");
+  check("input: with the cursor in the middle the row stays exactly the width, cursor visible", vw(mid) === 40 && mid.includes("\x1b[7mx\x1b[27m"), mid);
+  l.handleInput("\x01");
+  const head = l.render(40, noTheme, "ph");
+  check("input: Home scrolls back to the start (no left mark, a right mark)", vw(head) === 40 && !head.includes("…") === false && head.startsWith("❯ \x1b[7mx") && head.endsWith("…"), head);
+  l.clear();
+  check("input: empty line shows the placeholder", plain(l.render(30, noTheme, "type here")).startsWith("❯  type here"));
+  l.restore("kept");
+  check("input: restore puts text back", l.text === "kept");
+}
+
+console.log("[chat: panel]");
+{
+  const s = createStore();
+  const empty = renderChat(s.state, 40, 6, tagTheme);
+  check("chat panel: empty state text, exactly height rows", empty.length === 6 && plain(empty[0]!).includes("no messages yet"), empty[0]);
+  s.addChat({ role: "user", text: "How do I do this? " + "word ".repeat(30) });
+  s.addChat({
+    role: "assistant",
+    text: "# Title\n\nSome **bold** text and a list:\n\n- first item that is long enough to wrap around the panel width\n1. numbered\n\n```ts\nconst veryLongCodeLine = someFunction(argumentNumberOne, argumentNumberTwo, argumentNumberThree);\n```\nDone",
+  });
+  for (const w of [60, 30, 12, 7]) {
+    const lines = renderChat(s.state, w, 30, tagTheme);
+    check(`chat panel: ${w} wide: exactly 30 rows, none wider than ${w}`, lines.length === 30 && lines.every((x) => vw(x) <= w), lines.map((x) => vw(x)).filter((x) => x > w));
+  }
+  const lines = renderChat(s.state, 50, 30, tagTheme).map(plain);
+  const text = lines.join("\n");
+  check("chat panel: labels, no markdown markers", text.includes("you ▸") && text.includes("omp ▸") && !text.includes("**") && !text.includes("# Title") && text.includes("Title"));
+  check("chat panel: list items keep their markers, wrapped lines hang", text.includes("• first item") && text.includes("1. numbered"));
+  const codeRow = renderChat(s.state, 50, 30, tagTheme).find((x) => x.includes("veryLongCodeLine"));
+  check("chat panel: code is dim, indented and clipped with an ellipsis", codeRow !== undefined && codeRow.includes("<dim>  const") && plain(codeRow).includes("…") && !plain(codeRow).includes("argumentNumberThree"), codeRow);
+  const view = newChatView();
+  for (let i = 0; i < 12; i++) s.addChat({ role: "assistant", text: `line ${i}\nline ${i}b` });
+  const follow = renderChat(s.state, 50, 10, noTheme, view);
+  check("chat panel: follow shows the newest line at the bottom", plain(follow[9]!).includes("line 11b") && view.max > 0 && view.offset === 0, [follow[9], view.max]);
+  view.follow = false;
+  view.offset = 6;
+  const up = renderChat(s.state, 50, 10, noTheme, view);
+  check("chat panel: a scrolled view shows older lines", !plain(up.join("\n")).includes("line 11b") && view.offset === 6);
+  s.addChat({ role: "assistant", text: "brand new\nmore\nmore" });
+  const still = renderChat(s.state, 50, 10, noTheme, view);
+  check("chat panel: new content does not move a scrolled view", plain(still.join("\n")) === plain(up.join("\n")) && view.offset === 10, view.offset);
+  view.offset = 9999;
+  renderChat(s.state, 50, 10, noTheme, view);
+  check("chat panel: the offset is clamped to the top", view.offset === view.max, [view.offset, view.max]);
+  const streaming = createStore();
+  streaming.addChat({ role: "assistant", text: "writing", streaming: true });
+  const frames = [0, 0.4].map((phase) => {
+    streaming.state.phase = phase;
+    return renderChat(streaming.state, 30, 3, noTheme)[0]!;
+  });
+  check("chat panel: a streaming message shows a blinking block cursor", frames.some((f) => f.includes("▌")) && frames[0] !== frames[1], frames);
+}
+
+console.log("[chat: full screen component]");
+{
+  const s = createStore();
+  const sent: Array<[string, boolean]> = [];
+  const cmds: string[] = [];
+  let closed = 0;
+  const hud = new FullHud(s, noTheme, () => {}, () => closed++, () => 30, { send: (t, steer) => void sent.push([t, steer]), command: (a) => void cmds.push(a) });
+  const type = (str: string) => {
+    for (const ch of str) hud.handleInput(ch);
+  };
+  const screen = (w = 140): string => hud.render(w).map(plain).join("\n");
+  for (const [w, h] of [[140, 40], [120, 30], [100, 30], [80, 24], [60, 20], [50, 14]] as const) {
+    const h2 = new FullHud(s, noTheme, () => {}, () => {}, () => h, undefined);
+    s.addChat({ role: "assistant", text: "some answer\n".repeat(8) });
+    const lines = h2.render(w);
+    check(`full screen ${w}x${h}: exactly ${h} rows, none wider than ${w}`, lines.length === h && lines.every((x) => vw(x) <= w), [lines.length, lines.map((x) => vw(x)).filter((x) => x > w)]);
+    check(`full screen ${w}x${h}: conversation and prompt are visible`, lines.map(plain).join("\n").includes("some answer") && plain(lines[h - 2]!).startsWith("❯"), plain(lines[h - 2]!));
+    h2.dispose?.();
+  }
+  check("full screen: a too small terminal says so", plain(new FullHud(s, noTheme, () => {}, () => {}, () => 10).render(40).join("\n")).includes("too small"));
+  type("hello omp");
+  hud.handleInput("\r");
+  check("Enter sends plain text through the bridge", sent.length === 1 && sent[0]![0] === "hello omp" && sent[0]![1] === false, sent);
+  type("steer me");
+  hud.handleInput("\x1b\r");
+  check("Alt+Enter sends it as a steer", sent.length === 2 && sent[1]![1] === true, sent);
+  type("/hud size large");
+  hud.handleInput("\r");
+  check("/hud ... runs locally (arguments only)", cmds.join() === "size large" && sent.length === 2, [cmds, sent.length]);
+  type("/hud");
+  hud.handleInput("\r");
+  check("/hud alone runs the toggle locally", cmds.at(-1) === "");
+  type("/plan now");
+  hud.handleInput("\r");
+  check("another slash command is refused with a hint, nothing is sent, the text stays", sent.length === 2 && cmds.length === 2 && screen().includes("only /hud ... works") && screen().includes("❯ /plan now"));
+  hud.handleInput("\x1b");
+  check("Esc clears a non-empty prompt first", closed === 0 && screen().includes("type a message"));
+  type("qc");
+  check("q and c are text now, not shortcuts", closed === 0 && screen().includes("❯ qc"));
+  hud.handleInput("\x15");
+  s.upsertNode({ id: "n1", name: "explore", status: "running" });
+  hud.handleInput("\t");
+  hud.handleInput("\r");
+  check("Tab selects a node, an empty Enter opens its details", screen().includes("DETAILS"));
+  hud.handleInput("\x1b");
+  check("Esc closes the details first", closed === 0 && !screen().includes("DETAILS"));
+  for (let i = 0; i < 30; i++) s.addChat({ role: "assistant", text: `scroll line ${i}` });
+  hud.render(140);
+  hud.handleInput("\x1b[5~");
+  check("PageUp scrolls the conversation and shows the new-content marker", screen().includes("CHAT ↓ new") && !screen().includes("scroll line 29"));
+  hud.handleInput("\x1b[F");
+  check("End (empty prompt) jumps back to the newest line", !screen().includes("↓ new") && screen().includes("scroll line 29"));
+  hud.handleInput("\x1b[1;5A");
+  check("Ctrl+Up scrolls up a little", screen().includes("↓ new"));
+  hud.handleInput("\x1b[1;5F");
+  check("Ctrl+End follows again", !screen().includes("↓ new"));
+  hud.handleInput("\x1b[200~pasted text\x1b[201~");
+  check("a paste lands in the prompt", screen().includes("❯ pasted text"));
+  hud.handleInput("\x15");
+  hud.handleInput("\x1b");
+  check("Esc with an empty prompt and no details closes the HUD", closed === 1);
+  hud.dispose?.();
+}
+
+console.log("[chat: index.ts bridge]");
+{
+  const before = idx.sent.length;
+  const p = cmd.handler("full", M.ctx);
+  let closed = 0;
+  const full = M.custom.factory!(M.tui, M.theme, {}, (r: unknown) => { closed++; M.custom.done!(r); }) as { render(w: number): readonly string[]; handleInput(d: string): void; dispose?(): void };
+  const type = (str: string) => {
+    for (const ch of str) full.handleInput(ch);
+  };
+  const screen = (): string => full.render(140).map(plain).join("\n");
+  M.idle.value = true;
+  type("first message");
+  full.handleInput("\r");
+  check("idle: sendUserMessage without deliverAs (starts a turn)", idx.sent.length === before + 1 && idx.sent[before]!.text === "first message" && idx.sent[before]!.deliverAs === undefined, idx.sent.slice(before));
+  check("the sent text is in the panel at once", screen().includes("you ▸ first message"));
+  await idx.emit("message_start", { message: { role: "user", content: [{ type: "text", text: "first message" }] } }, M.ctx);
+  check("omp reporting it back does not duplicate it", screen().split("first message").length === 2);
+  await idx.emit("agent_start", {}, M.ctx);
+  M.idle.value = false;
+  type("second message");
+  full.handleInput("\r");
+  type("third message");
+  full.handleInput("\x1b\r");
+  check("busy: Enter queues as followUp, Alt+Enter steers", idx.sent[before + 1]?.deliverAs === "followUp" && idx.sent[before + 2]?.deliverAs === "steer", idx.sent.slice(before));
+  check("pending messages carry their tag", screen().includes("second message · queued") && screen().includes("third message · steering"));
+  await idx.emit("message_start", { message: { role: "user", content: [{ type: "text", text: "second message" }] } }, M.ctx);
+  check("when omp starts a queued message the tag disappears", !screen().includes("second message · queued") && screen().includes("third message · steering"));
+  await idx.emit("agent_end", { messages: [] }, M.ctx);
+  const notes = M.notes.length;
+  const opened = M.custom.opened;
+  type("/hud help");
+  full.handleInput("\r");
+  check("/hud help runs inside the HUD: output in the panel, no notification behind the overlay", screen().includes("Only /hud ... commands run inside the HUD.") && M.notes.length === notes, [M.notes.length, notes]);
+  type("/hud full");
+  full.handleInput("\r");
+  check("/hud full inside the HUD says so and does not open a second one", screen().includes("already in full screen") && M.custom.opened === opened);
+  type("/hud lang tr");
+  full.handleInput("\r");
+  check("a /hud command that changes state runs for real (language)", screen().includes("Dil: tr (elle)"), screen().split("\n").slice(-6));
+  type("/hud lang en");
+  full.handleInput("\r");
+  check("/hud lang en restores the language", screen().includes("Language: en (manual)"));
+  full.handleInput("\x1b");
+  await p;
+  full.dispose?.();
+  check("Esc closes the overlay (command promise settles)", closed === 1 && M.activeMs().length === 0, M.activeMs());
+  const before2 = idx.sent.length;
+  const dp = cmd.handler("demo full", M.ctx);
+  const demo = M.custom.factory!(M.tui, M.theme, {}, (r: unknown) => M.custom.done!(r)) as { render(w: number): readonly string[]; handleInput(d: string): void; dispose?(): void };
+  for (const ch of "hello demo") demo.handleInput(ch);
+  demo.handleInput("\r");
+  check("demo: typing never reaches omp, the demo answers itself", idx.sent.length === before2 && demo.render(140).map(plain).join("\n").includes("This is a demo"));
+  M.custom.done!(undefined);
+  await dp;
+  demo.dispose?.();
 }
 
 await idx.emit("session_shutdown", {}, M.ctx);

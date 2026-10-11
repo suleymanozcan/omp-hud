@@ -16,7 +16,7 @@
 - İlerlemesiyle birlikte **görevler** (todo listesi).
 - **Token göstergeleri**: giriş / çıkış / önbellek tokenları, bağlam penceresi doluluğu (%), saniyedeki token (tok/s) ve maliyet.
 - Editörün üstünde **dock** (6 / 9 / 12 satır); oturum başında açıktır: yazarken ve cevap okurken HUD görünür kalır.
-- `/hud full` ile **tam ekran** kip (alternatif ekran); çıkınca normal ekran bozulmadan geri gelir.
+- `/hud full` ile **tam ekran** kip (alternatif ekran): canlı paneller ile bir sohbet paneli ve girdi kutusu; ajana yazıp cevaplarını görmek için ekrandan çıkmanız gerekmez. Çıkınca normal ekran bozulmadan geri gelir.
 - **Kompakt panel** (`/hud compact on`): editörün altında eski 1-3 satırlık görünüm.
 - **`/hud demo`**: sahte olay akışı (yaklaşık 45 sn'lik döngü); tek token harcamadan her şeyi görürsünüz.
 - **İngilizce ve Türkçe** arayüz (`en` / `tr`, otomatik algılanır, çalışırken değiştirilebilir).
@@ -27,9 +27,21 @@
 
 Dock, editörün hemen üstünde duran kısa bir panel (6, 9 ya da 12 satır; terminal yüksekliğinin en çok %40'ı). Böylece HUD görünürken prompt yazmaya ve cevapları okumaya devam edebilirsin. Tam ekran katmanın aksine odağı almaz. Küçük animasyonlu çekirdeği ve alt ajan yörüngesini (çalışan düğümler hareket eder, biten yeşil, hata veren kırmızı), canlı akışın son satırlarını, aktif görevi ve token satırını gösterir. 70 sütunun altında yörünge yerine kompakt durum bloğu ve akışın son satırları gelir. Dock satırlarını üstündeki konuşma alanından alır; kısa terminallerde küçük tut. Komutlar: `/hud help`.
 
-**Dock neden varsayılan?** Tam ekran HUD ekranın tamamını kaplar; açıkken ajana yazamaz, cevapları okuyamazsınız. 1-3 satırlık kompakt panel ise ekranın altında kolayca kaybolur. Dock çalıştığınız yerde (prompt'un üstünde) görünür kalır, son satırları gizleyen pencerelerde kırpılmaz ve yer gerektiğinde `/hud` ile gizlenir. `/hud size small` (6 satır) en az yer kaplayan ayardır; `OMP_HUD_SIZE=small` bunu varsayılan yapar.
+**Dock neden varsayılan?** Tam ekran HUD ekranın tamamını kaplar. Kendi girdi kutusu ve sohbet paneli vardır ama omp'nin editörü değildir (çok satırlı girdi, ek dosya ve `/hud ...` dışındaki slash komutları yok); 1-3 satırlık kompakt panel ise ekranın altında kolayca kaybolur. Dock çalıştığınız yerde (prompt'un üstünde) görünür kalır, son satırları gizleyen pencerelerde kırpılmaz ve yer gerektiğinde `/hud` ile gizlenir. `/hud size small` (6 satır) en az yer kaplayan ayardır; `OMP_HUD_SIZE=small` bunu varsayılan yapar.
 
 omp'siz önizleme: `bun scripts/preview.ts --dock --size medium --width 130 --rows 40 --at 3,14,24,36`.
+
+## Tam ekran
+
+`/hud full` HUD'u alternatif ekranda açar ve odağı alır. Canlı panellerin yanında kendi **sohbet paneli** (sizin mesajlarınız ve ajanın cevapları, canlı akışla; düşünme ve araç çağrıları gösterilmez, onlar akıştadır) ve altta bir **girdi kutusu** vardır.
+
+- **Yerleşim.** 110 sütundan itibaren: solda ajan yörüngesi (34 sütun), sağda sohbet (yüksekliğin yaklaşık üçte ikisi), altında ince akış ve tek satırlık görev özeti. 70 sütundan itibaren: üstte küçük yörünge, altında sohbet ve kısa akış. Daha darda: sohbet, kısa akış ve girdi kutusu. Token şeridi ve girdi kutusu (çizgi, girdi satırı, tuş ipucu) hep en alttadır. Düğüm ayrıntısı yörüngenin (küçük ekranlarda sohbetin) yerine geçer.
+- **Gönderme.** `Enter` metni omp'ye kullanıcı mesajı olarak gönderir. Ajan meşgulken mesaj kuyrukta bekler (`· sırada` etiketi) ve mevcut turdan sonra çalışır; `Alt+Enter` ise çalışan turu yönlendirir (`· yönlendirildi`). Gönderdiğiniz mesaj hemen görünür ve omp'nin kendi kullanıcı mesajıyla eşleştirilir; yani iki kez görünmez. Sohbet ayrıca editörden yazılan mesajları, oturum başında ya da oturum değişince de oturum geçmişinin son 40 mesajını gösterir.
+- **Komutlar.** HUD içinde yalnız `/hud ...` satırları çalışır (örneğin `/hud help`, `/hud lang tr`); çıktıları sohbet panelinde `hud ▸` etiketiyle görünür. Diğer her `/` satırı bir ipucuyla reddedilir (omp, eklentinin gönderdiği metinde komut açmaz) ve metin girdi kutusunda kalır.
+- **Kaydırma.** Panel en yeni satırı izler. `PgUp` / `Ctrl+↑` izlemeyi bırakır (başlıkta `↓ yeni` görünür); yeni metin okuduğunuz yeri kaydırmaz. `End` / `Ctrl+End` yeniden izler.
+- **Metin işleme.** Mesajlardan kontrol karakterleri ve ANSI dizileri temizlenir; çok uzun mesajlar kısaltılır (mesaj başına 12 KB, en çok 40 mesaj). Markdown sade metin olarak gösterilir: başlık ve kalın işaretleri düşer, listeler işaretini korur, kod blokları sönük, girintili ve kaydırılmak yerine kırpılır.
+
+Model olmadan denemek için: `/hud demo full` (orada yazdıklarınız omp'ye gitmez).
 
 ## Kurulum
 
@@ -85,7 +97,7 @@ extensions:
 | Komut | Etki |
 | --- | --- |
 | `/hud` | Dock'u açar/kapatır (varsayılan görünüm; oturum başında açık): editörün yanında 6 / 9 / 12 satırlık panel, odağı almaz, yazmaya devam edersiniz. |
-| `/hud full` | Tam ekran HUD (eski `/hud`; son satırı `/hud pad` boş bırakır). |
+| `/hud full` | Sohbet paneli ve girdi kutusu olan tam ekran HUD (son satırı `/hud pad` boş bırakır). |
 | `/hud size small\|medium\|large` | Dock boyutu (varsayılan medium, ortam `OMP_HUD_SIZE`); argümansız boyutu ve bu terminal yüksekliğinde aldığı satırı gösterir. |
 | `/hud place above\|below` | Dock editörün üstünde (varsayılan) ya da altında (ortam `OMP_HUD_PLACE`); açıksa yeniden kurulur. |
 | `/hud demo` | Dock'ta sahte olay akışı (gerekirse demo için dock'u açar; yeniden ya da `/hud demo off` durdurur). Gerçek oturum durumuna dokunmaz. |
@@ -99,15 +111,18 @@ extensions:
 
 Her komut kısa bir bildirimle yanıt verir (örneğin `Kompakt HUD: açık (editörün altında 1-3 satır)` ya da `zaten açık`).
 
-Tam ekrandaki tuşlar:
+Tam ekrandaki tuşlar ([Tam ekran](#tam-ekran) bölümünde ayrıntı):
 
 | Tuş | Etki |
 | --- | --- |
-| `Esc` | Ayrıntı açıksa onu kapatır; değilse HUD'dan çıkar. |
-| `q` | HUD'dan çıkar. |
-| `←` / `→` / `Tab` | Önceki / sonraki düğümü seçer (`Shift+Tab` de geri gider). |
-| `Enter` | Seçili düğümün ayrıntısını açar/kapatır. |
-| `c` | Seçimi temizler. |
+| yazı, `Backspace`, `Delete`, `←` / `→`, `Home` / `End`, `Ctrl+A` / `Ctrl+E`, `Ctrl+U` (temizle), `Ctrl+W` (kelime sil), `Ctrl+K` (sona kadar sil), yapıştırma | Girdi kutusunu düzenler. |
+| `↑` / `↓` | Bu oturumun girdi geçmişi (50 kayıt). |
+| `Enter` | Girdiyi gönderir. Girdi boşken ve bir düğüm seçiliyse düğüm ayrıntısını açar/kapatır. |
+| `Alt+Enter` | Çalışan tura yönlendirme olarak gönderir (ajan meşgulken varsayılan: turun arkasında sıraya girer). |
+| `Tab` / `Shift+Tab` | Sonraki / önceki düğümü seçer. |
+| `PgUp` / `PgDn`, `Ctrl+↑` / `Ctrl+↓` | Sohbeti kaydırır. |
+| `End` (girdi boşken), `Ctrl+End` | En yeni satıra atlar ve yeniden izler. |
+| `Esc` | Ayrıntı açıksa onu kapatır; değilse dolu girdiyi temizler; değilse HUD'dan çıkar. |
 
 ### Dil
 
@@ -122,7 +137,7 @@ OMP_HUD_LANG=tr omp
 Yalnızca [Bun](https://bun.sh) gerekir. Hiçbiri omp'yi başlatmaz ya da model çağırmaz; demo sanal zamanla ilerler.
 
 ```sh
-# terminalde canlı izle (alternatif ekran, ~15 fps; Esc / q / Ctrl-C çıkar)
+# terminalde canlı izle (alternatif ekran, ~15 fps; Esc / Ctrl-C çıkar)
 bun scripts/preview.ts --live
 
 # kareleri 24-bit ANSI metni olarak bas
@@ -139,7 +154,7 @@ bun scripts/preview.ts --frames 2 --width 140 --height 40 --at 14,24 --compact -
 - **Yalnızca omp 18.8.9'da denendi** (macOS; Ghostty ve cmux). Diğer omp sürümleri ve diğer terminaller: bilinmiyor.
 - **Belgelenmemiş iç kanallara dayanır.** Alt ajan verisi `pi.events` üzerindeki `task:subagent:lifecycle` ve `task:subagent:progress` olaylarından, tam ekran ise overlay `fullscreen` seçeneğinden gelir. İkisi de belgeli sözleşme değildir; omp güncellenince bozulabilir. Yedek yollar vardır: alt ajan olayları değişirse alt ajan düğümleri boş kalabilir, çekirdek, akış, görevler ve token göstergeleri çalışmaya devam eder; `fullscreen` kalkarsa HUD normal bir overlay'e düşer.
 - **omp'nin ana görünümünü değiştirmez.** omp'de `setHeader` / `setFooter` etkisizdir; HUD yalnızca widget'lar (editörün yanındaki dock, altındaki kompakt panel), durum metni satırı ve tam ekran overlay olarak görünür.
-- **Tam ekran HUD (`/hud full`) açıkken ajana yazılamaz.** Odak overlay'dedir; geri dönmek için `Esc`'e basın. Dock odağı almaz: görünürken yazabilirsiniz.
+- **Tam ekranın kendi girdi kutusu vardır, omp'nin editörü değildir.** `/hud full` bir sohbet paneli ve tek satırlık bir girdi kutusu gösterir; omp'nin editörünü değil: çok satırlı girdi, ek dosya ya da `@` otomatik tamamlama yoktur ve yalnız `/hud ...` komutları çalışır (diğer `/` komutları bir ipucuyla reddedilir; `Esc` ile çıkıp editörü kullanın). Gönderdiğiniz metin ajana düz kullanıcı mesajı olarak gider (şablon açılımı yok). Dock odağı almaz: orada normal editörü kullanmaya devam edersiniz.
 - **Terminal:** braille ve blok karakterler yoğun kullanılır; braille'i iyi çizen bir yazı tipiyle truecolor terminal (`COLORTERM=truecolor`) önerilir. Terminal en az 50x14 olmalıdır. TUI olmayan kiplerde HUD kurulmaz.
 - **Yerleşik özelliklerle örtüşme:** omp'nin Agent Hub'ı (`Alt+A`) benzer alt ajan verisini gösterir. Editörün üstündeki yerleşik "Subagents" bloğu HUD ile çakışırsa `display.pinnedAgents: off` ayarlayın.
 

@@ -275,9 +275,12 @@ export function createStore(): HudStore {
 
     resolvePendingChat(text) {
       const key = matchKey(text);
-      const m = chat.find((x) => x.role === "user" && x.pending !== undefined && matchKey(x.text) === key);
-      if (!m) return false;
-      delete m.pending;
+      const i = chat.findIndex((x) => x.role === "user" && x.pending !== undefined && matchKey(x.text) === key);
+      if (i < 0) return false;
+      // A queued message was shown where it was typed; omp starts it only now, after the replies that were running: it moves to the end.
+      const [m] = chat.splice(i, 1);
+      delete m!.pending;
+      chat.push(m!);
       state.chatRev = (state.chatRev ?? 0) + 1;
       changed();
       return true;

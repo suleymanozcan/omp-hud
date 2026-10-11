@@ -113,7 +113,7 @@ export interface HudStore {
 // --- Cross-module exports (signatures are stable) ---
 // src/render/orbit-scene.ts : export function renderOrbitScene(state: HudState, width: number, height: number, theme: HudTheme): string[]
 //    (exactly `height` rows, every row at most `width` cells wide; core in the center, node orbit around it)
-// src/components/full-hud.ts    : export class FullHud (omp Component)   constructor(store: HudStore, theme: HudTheme, requestRender: () => void, close: () => void)
+// src/components/full-hud.ts    : export class FullHud (omp Component)   constructor(store: HudStore, theme: HudTheme, requestRender: () => void, close: () => void, getRows?: () => number, bridge?: ChatBridge)
 // src/components/compact-hud.ts : export class CompactHud (omp Component) constructor(store: HudStore, theme: HudTheme)
 // src/store.ts : export function createStore(): HudStore
 // src/collector.ts : export function attachCollector(pi: unknown /* ExtensionAPI */, store: HudStore): void

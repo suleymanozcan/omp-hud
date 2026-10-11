@@ -16,7 +16,7 @@ Terminal HUD for [oh-my-pi](https://github.com/can1357/oh-my-pi) (`omp`): an ani
 - **Tasks**: your todo list with progress.
 - **Token gauges**: input / output / cache tokens, context window usage in %, tokens per second and cost.
 - **Dock** above the editor (6 / 9 / 12 rows), on from the start of a session: the HUD stays visible while you type and read answers.
-- **Fullscreen mode** with `/hud full`, on the alternate screen; the normal screen is restored on exit.
+- **Fullscreen mode** with `/hud full`, on the alternate screen: live panels plus a conversation panel and a prompt, so you can write to the agent and read its answers without leaving it; the normal screen is restored on exit.
 - **Compact panel** (`/hud compact on`): the older 1-3 row view below the editor.
 - **`/hud demo`**: a fake event stream (about 45 s loop) so you can see everything without spending a token.
 - **English and Turkish** UI (`en` / `tr`, auto-detected, switchable at runtime).
@@ -27,9 +27,21 @@ Terminal HUD for [oh-my-pi](https://github.com/can1357/oh-my-pi) (`omp`): an ani
 
 The dock is a short panel (6, 9 or 12 rows; never more than 40% of the terminal height) that sits right above the editor, so you can keep typing prompts and reading answers while the HUD stays visible. Unlike the fullscreen overlay it does not take focus. It shows a small animated core with the sub-agent orbit (running nodes move, finished ones turn green, failed ones red), the latest live-feed lines, the active task and a token line. Below 70 columns the orbit is replaced by a compact status block plus the tail of the feed. The dock takes its rows from the transcript above it, so keep it small on short terminals. Commands: see `/hud help`.
 
-**Why the dock is the default.** The fullscreen HUD covers the whole screen, so you cannot type to the agent or read its answers while it is open, and the 1-3 row compact panel is easy to lose at the bottom of the screen. The dock stays visible where you work (above the prompt), is not clipped by windows that hide the last rows, and can be hidden with `/hud` when you need the space. `/hud size small` (6 rows) is the least intrusive setting; `OMP_HUD_SIZE=small` makes it the default.
+**Why the dock is the default.** The fullscreen HUD covers the whole screen. It has its own prompt and conversation panel, but it is not omp's editor (no multi-line input, attachments or slash commands other than `/hud ...`), and the 1-3 row compact panel is easy to lose at the bottom of the screen. The dock stays visible where you work (above the prompt), is not clipped by windows that hide the last rows, and can be hidden with `/hud` when you need the space. `/hud size small` (6 rows) is the least intrusive setting; `OMP_HUD_SIZE=small` makes it the default.
 
 Preview without omp: `bun scripts/preview.ts --dock --size medium --width 130 --rows 40 --at 3,14,24,36`.
+
+## Full screen
+
+`/hud full` opens the HUD on the alternate screen and takes focus. Besides the live panels it has its own **conversation panel** (your messages and the agent's answers, streamed live; thinking and tool calls are not shown, they are in the feed) and a **prompt** at the bottom.
+
+- **Layout.** From 110 columns: the agent orbit on the left (34 columns), the conversation on the right (about two thirds of the height) with a thin feed and a one-line task summary below it. From 70 columns: a small orbit on top, then the conversation and a short feed. Narrower: conversation, a short feed and the prompt. The token strip and the prompt (rule, input row, key hint) are always at the bottom. Node details replace the orbit (or the conversation on small screens).
+- **Sending.** `Enter` sends the text to omp as a user message. While the agent is busy the message waits in the queue (a `· queued` tag marks it) and runs after the current turn; `Alt+Enter` steers the running turn instead (`· steering`). A message you send appears at once and is matched with omp's own user message, so it is never shown twice. The conversation also shows messages typed in the editor and, at session start or after a session switch, the last 40 messages of the session history.
+- **Commands.** Only `/hud ...` lines run inside the HUD (for example `/hud help`, `/hud lang tr`); their output appears in the conversation panel with a `hud ▸` label. Any other `/` line is refused with a hint (omp does not expand commands for text sent by extensions), and the text stays in the prompt.
+- **Scrolling.** The panel follows the newest line. `PgUp` / `Ctrl+↑` stop following (the title shows `↓ new`); new text then does not move what you read. `End` / `Ctrl+End` follow again.
+- **Text handling.** Control characters and ANSI sequences are stripped from messages; very long messages are clipped (12 KB each, 40 messages kept). Markdown is shown as plain text: headings and bold markers are dropped, lists keep their markers, code blocks are dim, indented and clipped instead of wrapped.
+
+Try it without a model: `/hud demo full` (typing there never reaches omp).
 
 ## Install
 
@@ -85,7 +97,7 @@ extensions:
 | Command | Effect |
 | --- | --- |
 | `/hud` | Show or hide the dock (default view; on at session start): a 6 / 9 / 12 row panel next to the editor, no focus taken, you keep typing. |
-| `/hud full` | The fullscreen HUD (the old `/hud`; the last row is kept free by `/hud pad`). |
+| `/hud full` | The fullscreen HUD with a conversation panel and a prompt (the last row is kept free by `/hud pad`). |
 | `/hud size small\|medium\|large` | Dock size (default medium, env `OMP_HUD_SIZE`); no argument shows it and the rows it takes at this terminal height. |
 | `/hud place above\|below` | Dock above (default) or below the editor (env `OMP_HUD_PLACE`); the dock is re-installed when open. |
 | `/hud demo` | A fake event stream in the dock (opens it for the demo if needed; run it again or `/hud demo off` to stop). The real session state is not touched. |
@@ -99,15 +111,18 @@ extensions:
 
 Every command answers with a short notification (for example `Compact HUD: on (1-3 lines below the editor)`, or `already on`).
 
-Keys in fullscreen:
+Keys in fullscreen (details in [Full screen](#full-screen)):
 
 | Key | Effect |
 | --- | --- |
-| `Esc` | Close the node details if open, otherwise leave the HUD. |
-| `q` | Leave the HUD. |
-| `←` / `→` / `Tab` | Select the previous / next node (`Shift+Tab` also goes back). |
-| `Enter` | Open or close the details of the selected node. |
-| `c` | Clear the selection. |
+| text, `Backspace`, `Delete`, `←` / `→`, `Home` / `End`, `Ctrl+A` / `Ctrl+E`, `Ctrl+U` (clear), `Ctrl+W` (delete word), `Ctrl+K` (delete to end), paste | Edit the prompt. |
+| `↑` / `↓` | Prompt history of this session (50 entries). |
+| `Enter` | Send the prompt. With an empty prompt and a node selected: open or close its details. |
+| `Alt+Enter` | Send as a steer into the running turn (default while busy: queued behind it). |
+| `Tab` / `Shift+Tab` | Select the next / previous node. |
+| `PgUp` / `PgDn`, `Ctrl+↑` / `Ctrl+↓` | Scroll the conversation. |
+| `End` (empty prompt), `Ctrl+End` | Jump to the newest line and follow it again. |
+| `Esc` | Close the node details if open; else clear a non-empty prompt; else leave the HUD. |
 
 ### Language
 
@@ -122,7 +137,7 @@ OMP_HUD_LANG=en omp
 You only need [Bun](https://bun.sh). Nothing here starts omp or calls a model; the demo runs on virtual time.
 
 ```sh
-# watch live in your terminal (alternate screen, ~15 fps; Esc / q / Ctrl-C quits)
+# watch live in your terminal (alternate screen, ~15 fps; Esc / Ctrl-C quits)
 bun scripts/preview.ts --live
 
 # print frames as 24-bit ANSI text
@@ -139,7 +154,7 @@ bun scripts/preview.ts --frames 2 --width 140 --height 40 --at 14,24 --compact -
 - **Tested on omp 18.8.9 only** (macOS; Ghostty and cmux). Other omp versions and other terminals: unknown.
 - **It relies on undocumented internals.** Sub-agent data comes from the `task:subagent:lifecycle` and `task:subagent:progress` events on `pi.events`, and fullscreen uses the overlay `fullscreen` option. Neither is a documented contract, so an omp update can break them. There are fallbacks: if the sub-agent events change, sub-agent nodes may stay empty while the core, feed, tasks and token gauges keep working; if `fullscreen` disappears, the HUD falls back to a normal overlay.
 - **It does not replace omp's main view.** `setHeader` / `setFooter` have no effect in omp, so the HUD shows up only as widgets (the dock next to the editor, the compact panel below it), the status text line and the fullscreen overlay.
-- **You cannot type to the agent while the fullscreen HUD (`/hud full`) is open.** Focus is on the overlay; press `Esc` to get back. The dock does not take focus: you can type while it is shown.
+- **Full screen has its own prompt, not the editor.** `/hud full` shows a conversation panel and a one-line prompt, but not omp's editor: no multi-line input, no attachments or `@` autocomplete, and only `/hud ...` slash commands (other `/` commands are refused with a hint; press `Esc` and use the editor). Text you send goes to the agent as a plain user message (no template expansion). The dock does not take focus: there you keep using the normal editor.
 - **Terminal:** braille and block characters are used heavily; a truecolor terminal (`COLORTERM=truecolor`) with a font that renders braille well is recommended. The terminal must be at least 50x14. The HUD is not installed in non-TUI modes.
 - **Overlap with built-in features:** omp's Agent Hub (`Alt+A`) shows similar sub-agent data. If the built-in pinned "Subagents" block above the editor overlaps with the HUD, set `display.pinnedAgents: off`.
 
