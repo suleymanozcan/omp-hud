@@ -34,7 +34,7 @@ omp plugin install github:suleymanozcan/omp-hud
 
 `omp install github:suleymanozcan/omp-hud` is an alias, and `git+https://github.com/suleymanozcan/omp-hud.git` works as the spec too (omp's git spec grammar: `github:user/repo[#ref]`, `git+https://...`, `git@github.com:user/repo`). Restart `omp` afterwards: extensions are loaded only at startup. Update with `omp plugin upgrade omp-hud`, remove with `omp plugin uninstall omp-hud`.
 
-> Status: the install methods below were tested with omp 18.8.9 in an isolated profile. The `github:` spec above follows omp's documented grammar but had not been run against the published repository when this README was written.
+> Verified with omp 18.8.9 in an isolated profile: `omp plugin install github:suleymanozcan/omp-hud` installs `omp-hud@0.1.0`; `omp plugin list` and `omp plugin doctor` report it healthy; `/hud help` and `/hud lang en` work after a restart. `omp install github:suleymanozcan/omp-hud`, `git+https://github.com/suleymanozcan/omp-hud.git` and `omp plugin upgrade omp-hud` were run the same way and succeeded (the `git@github.com:` form was not run).
 
 ### From a local clone (tested)
 
