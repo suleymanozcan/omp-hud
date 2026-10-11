@@ -243,8 +243,8 @@ export function composeHud(state: HudState, width: number, height: number, theme
   } else {
     // Narrow: (medium widths) a small orbit on top, then the conversation and a thin feed.
     const feedH = mainH >= 16 ? 4 : mainH >= 12 ? 3 : 0;
-    let orbitH = width >= 70 ? Math.round(mainH * 0.25) : 0;
-    if (orbitH < 8 || mainH - feedH - orbitH < MIN_CHAT_H + 2) orbitH = 0;
+    let orbitH = width >= 70 ? Math.max(7, Math.round(mainH * 0.25)) : 0;
+    if (mainH - feedH - orbitH < MIN_CHAT_H + 2) orbitH = 0;
     const chatH = mainH - feedH - orbitH;
     main = [
       ...(orbitH > 0 ? orbitPanel(width, orbitH) : []),
