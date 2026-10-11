@@ -896,6 +896,7 @@ console.log("[chat: input line]");
 const { InputLine } = await import("../src/components/input-line.ts");
 const { renderChat } = await import("../src/render/chat.ts");
 const { FullHud } = await import("../src/components/full-hud.ts");
+const { renderPalette } = await import("../src/render/palette.ts");
 const { newChatView } = await import("../src/chat.ts");
 const { vw } = await import("../src/util/text.ts");
 const tagTheme = { fg: (c: string, t: string) => `<${c}>${t}</${c}>`, bold: (t: string) => t, truecolor: false };
@@ -1431,6 +1432,10 @@ console.log("[slash: command palette]");
   narrow.dispose?.();
   hud.dispose?.();
   check("no text ever went to the agent through the palette", sent.length === 0, sent);
+  const bare = renderPalette([{ value: "tools", label: "tools", description: "Tools: 12", raw: {} }, { value: "x", label: "name\x1b[31m", raw: {} }], 0, 0, 2, 40, noTheme, true).map(plain);
+  check("bare command names are shown with a leading slash, rows are exactly as wide as the screen", bare[0]!.startsWith(" ▸ /tools") && bare[1]!.startsWith("   /name") && bare.every((r) => vw(r) === 40), bare);
+  const dirty = slash.normalizeSuggestions({ items: [{ value: "a", label: "a\x1b[2Jb", description: "line1\nline2\x07", argumentHint: "<\x1b]0;x\x07z>" }] });
+  check("completion text is cleaned of ANSI, control characters and newlines", dirty?.items[0]!.label === "ab" && dirty.items[0]!.description === "line1 line2" && dirty.items[0]!.argumentHint === "<z>", dirty);
 }
 
 console.log("[full screen: orbit layout]");
