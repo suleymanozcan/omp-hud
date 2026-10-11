@@ -32,6 +32,41 @@ function drawBreath(c: BrailleCanvas, pal: Palette, cx: number, cy: number, R: n
   c.fillCircle(cx, cy, 1 + beat, shade(pal, hue, (0.6 + 0.4 * beat) * gain));
 }
 
+/**
+ * Dock-style idle core (also the "done" glow): a bright breathing outer ring with counter-rotating arcs and a small
+ * eye (iris ring + pupil) in the middle, so a resting core still reads as alive. Intensities stay high so the
+ * non-truecolor fallback (accent / muted / dim by level) keeps the bright parts accent-colored.
+ */
+function drawEye(c: BrailleCanvas, pal: Palette, cx: number, cy: number, R: number, t: number, gain: number, hue: Hue): void {
+  const breath = 0.5 + 0.5 * Math.sin(TAU * 0.3 * t);
+  const ro = R * (0.94 + 0.05 * breath);
+  const base = (0.5 + 0.4 * breath) * gain;
+  c.circle(cx, cy, ro, shade(pal, hue, base));
+  c.circle(cx, cy, ro - 1, shade(pal, hue, base * 0.75));
+  for (let k = 0; k < 3; k++) {
+    const a0 = 0.9 * t + (k * TAU) / 3;
+    const col = shade(pal, hue, 1 * gain);
+    c.arc(cx, cy, ro + 1, a0, a0 + 0.9, col);
+    c.arc(cx, cy, ro, a0, a0 + 0.9, col);
+    c.arc(cx, cy, ro - 1, a0 + 0.05, a0 + 0.85, col);
+  }
+  if (R >= 9) {
+    const rm = R * 0.62;
+    c.circle(cx, cy, rm, shade(pal, hue, (0.3 + 0.2 * breath) * gain));
+    for (let k = 0; k < 2; k++) {
+      const a0 = -1.3 * t + k * Math.PI;
+      c.arc(cx, cy, rm, a0, a0 + 1.4, shade(pal, hue, 0.85 * gain));
+    }
+  }
+  const ri = Math.max(2, R * 0.28);
+  c.circle(cx, cy, ri, shade(pal, hue, (0.65 + 0.3 * breath) * gain));
+  for (let k = 0; k < 4; k++) {
+    const a = 0.35 * t + (k * TAU) / 4;
+    c.line(cx + Math.cos(a) * ri * 1.15, cy + Math.sin(a) * ri * 1.15, cx + Math.cos(a) * ri * 1.55, cy + Math.sin(a) * ri * 1.55, shade(pal, hue, 0.6 * gain));
+  }
+  c.fillCircle(cx, cy, 1.1 + 1.3 * breath, shade(pal, hue, 1 * gain));
+}
+
 function drawThinking(c: BrailleCanvas, pal: Palette, cx: number, cy: number, R: number, t: number, gain: number): void {
   const rad = [0.4, 0.68, 0.95];
   const span = [1.75, 2.6, 3.7];
@@ -114,9 +149,11 @@ function drawError(c: BrailleCanvas, pal: Palette, cx: number, cy: number, R: nu
   c.line(cx - x, cy + x, cx + x, cy - x, col);
 }
 
-function drawDone(c: BrailleCanvas, pal: Palette, cx: number, cy: number, R: number, t: number, sinceS: number, gain: number): void {
+function drawDone(c: BrailleCanvas, pal: Palette, cx: number, cy: number, R: number, t: number, sinceS: number, gain: number, bold: boolean): void {
   const p = sinceS / DONE_PULSE_S;
-  drawBreath(c, pal, cx, cy, R, t, gain * (0.6 + 0.4 * smooth(p - 0.3)), "success");
+  const g = gain * (0.6 + 0.4 * smooth(p - 0.3));
+  if (bold) drawEye(c, pal, cx, cy, R, t, g, "success");
+  else drawBreath(c, pal, cx, cy, R, t, g, "success");
   if (p < 1) {
     const e = 1 - (1 - p) * (1 - p);
     c.circle(cx, cy, R * (0.25 + 0.75 * e), shade(pal, "success", 1 - p));
@@ -139,8 +176,8 @@ function drawWarning(c: BrailleCanvas, pal: Palette, cx: number, cy: number, R: 
   }
 }
 
-/** Draws the core (cx,cy: sub-pixels; radius: sub-pixels). */
-export function drawCore(c: BrailleCanvas, state: HudState, cx: number, cy: number, radius: number, theme: HudTheme): void {
+/** Draws the core (cx,cy: sub-pixels; radius: sub-pixels). `bold` is the dock look: the resting core is a bright "eye". */
+export function drawCore(c: BrailleCanvas, state: HudState, cx: number, cy: number, radius: number, theme: HudTheme, bold = false): void {
   const pal = paletteFor(theme);
   const core = state.core;
   const t = state.phase;
@@ -149,21 +186,26 @@ export function drawCore(c: BrailleCanvas, state: HudState, cx: number, cy: numb
   switch (core.status) {
     case "thinking":
       drawThinking(c, pal, cx, cy, radius, t, gain);
+      if (bold) drawThinking(c, pal, cx, cy, radius - 1.3, t, gain);
       break;
     case "streaming":
       drawStreaming(c, pal, cx, cy, radius, t, gain);
+      if (bold) drawStreaming(c, pal, cx, cy, radius - 1.3, t, gain);
       break;
     case "tool":
       drawTool(c, pal, cx, cy, radius, t, gain);
+      if (bold) drawTool(c, pal, cx, cy, radius - 1.3, t, gain);
       break;
     case "error":
       drawError(c, pal, cx, cy, radius, t, sinceMs / 1000, gain);
+      if (bold) drawError(c, pal, cx, cy, radius - 1.3, t, sinceMs / 1000, gain);
       break;
     case "done":
-      drawDone(c, pal, cx, cy, radius, t, sinceMs / 1000, gain);
+      drawDone(c, pal, cx, cy, radius, t, sinceMs / 1000, gain, bold);
       break;
     default:
-      drawBreath(c, pal, cx, cy, radius, t, gain, "accent");
+      if (bold) drawEye(c, pal, cx, cy, radius, t, gain, "accent");
+      else drawBreath(c, pal, cx, cy, radius, t, gain, "accent");
   }
   if (core.warning) drawWarning(c, pal, cx, cy, radius, t);
   if (sinceMs < FLASH_MS) {

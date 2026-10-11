@@ -28,7 +28,8 @@ const DOCK_KEY = "hud-dock";
 const STATUS_KEY = "hud";
 const FULL_MS = 66; // ~15 fps
 const VISIBLE_BUSY_MS = 125; // dock / compact while something is going on, ~8 fps
-const VISIBLE_IDLE_MS = 500; // dock / compact while idle, 2 fps
+const DOCK_IDLE_MS = 250; // dock while idle, 4 fps (the idle core breathes and placeholder sparkles orbit)
+const COMPACT_IDLE_MS = 500; // compact panel while idle, 2 fps
 const STATUS_ANIM_MS = 500; // spinner cadence of the status line when nothing else is visible
 const STATUS_GAP_MS = 450; // minimum gap between two setStatus writes (<= 2 Hz)
 const SETTLE_MS = 3000; // stay at the fast rate briefly after done/error
@@ -147,7 +148,7 @@ function desiredInterval(store: HudStore): number {
   if (hud.fullOpen) return FULL_MS;
   if (hud.dock.on || hud.compact.on) {
     const busy = (hud.dock.on && isBusy(dockStore(store))) || (hud.compact.on && isBusy(store));
-    return busy ? VISIBLE_BUSY_MS : VISIBLE_IDLE_MS;
+    return busy ? VISIBLE_BUSY_MS : hud.dock.on ? DOCK_IDLE_MS : COMPACT_IDLE_MS;
   }
   // Status line only: the text changes with the store, except for the spinner while busy.
   return hud.statusOn && statusIsAnimated(store.state) ? STATUS_ANIM_MS : 0;

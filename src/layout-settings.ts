@@ -1,4 +1,4 @@
-// Dock size and placement. Initial values: OMP_HUD_SIZE (small|medium|large, default medium) and
+// Dock size and placement. Initial values: OMP_HUD_SIZE (small|medium|large, default large) and
 // OMP_HUD_PLACE (above|below, default above); `/hud size` and `/hud place` override them at runtime (not persisted).
 import type { DockSize } from "./components/dock-hud.ts";
 
@@ -18,7 +18,7 @@ let size: DockSize | undefined;
 let place: DockPlace | undefined;
 
 export function getSize(): DockSize {
-  size ??= parseSize(process.env.OMP_HUD_SIZE) ?? "medium";
+  size ??= parseSize(process.env.OMP_HUD_SIZE) ?? "large";
   return size;
 }
 

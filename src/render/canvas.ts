@@ -275,6 +275,24 @@ export class BrailleCanvas {
     }
   }
 
+  /** Elliptic arc with independent x/y radii (sub-pixels are square, so rx/ry are plain sub-pixel counts). */
+  ellipseArc(cx: number, cy: number, rx: number, ry: number, a0: number, a1: number, color: Color, every = 1): void {
+    const code = packColor(color);
+    if (code === 0 || rx < 0 || ry < 0) return;
+    const span = a1 - a0;
+    const n = Math.max(2, Math.ceil(Math.abs(span) * Math.max(rx, ry, 1) * 1.1));
+    const step = span / n;
+    for (let i = 0; i <= n; i++) {
+      if (i % every !== 0) continue;
+      const a = a0 + step * i;
+      this.set(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, code);
+    }
+  }
+
+  ellipse(cx: number, cy: number, rx: number, ry: number, color: Color, every = 1): void {
+    this.ellipseArc(cx, cy, rx, ry, 0, TAU, color, every);
+  }
+
   fillCircle(cx: number, cy: number, r: number, color: Color): void {
     const code = packColor(color);
     if (code === 0) return;

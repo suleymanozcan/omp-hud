@@ -8,7 +8,13 @@ const tr = {
   "dock.allDone": "hepsi tamam",
   "dock.nextTask": "sıradaki",
   "dock.blocked": "engelli",
+  "dock.blockedN": "{n} engelli",
   "dock.ctx": "bağlam",
+  "dock.noTokens": "henüz token yok",
+  "dock.tip": "ipucu",
+  "dock.tipDemo": "sahte olay akışıyla dene",
+  "dock.tipSize": "boyut: small 8 · medium 12 · large 16 satır",
+  "dock.tipHelp": "tüm komutlar",
 } as const;
 
 const en: Record<keyof typeof tr, string> = {
@@ -17,7 +23,13 @@ const en: Record<keyof typeof tr, string> = {
   "dock.allDone": "all done",
   "dock.nextTask": "next",
   "dock.blocked": "blocked",
+  "dock.blockedN": "{n} blocked",
   "dock.ctx": "ctx",
+  "dock.noTokens": "no tokens yet",
+  "dock.tip": "tip",
+  "dock.tipDemo": "try a simulated event stream",
+  "dock.tipSize": "size: small 8 · medium 12 · large 16 rows",
+  "dock.tipHelp": "all commands",
 };
 
 export type DockKey = keyof typeof tr;

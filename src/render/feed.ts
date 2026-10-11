@@ -4,7 +4,7 @@ import { agentLabel, t } from "../i18n.ts";
 import { trunc, vw } from "../util/text.ts";
 import { agentTag, fmtClock } from "./fmt.ts";
 
-const KIND_ICON: Record<FeedKind, string> = {
+export const KIND_ICON: Record<FeedKind, string> = {
   tool: "▸",
   message: "·",
   subagent: "◆",

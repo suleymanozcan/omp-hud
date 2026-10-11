@@ -20,7 +20,7 @@ export type OrbitRenderer = (
   width: number,
   height: number,
   theme: HudTheme,
-  options?: { selectedId?: string },
+  options?: { selectedId?: string; small?: boolean; labels?: boolean; wide?: boolean },
 ) => string[];
 
 export interface ComposeOptions {
@@ -201,10 +201,10 @@ export function composeHud(state: HudState, width: number, height: number, theme
   }
   const mainH = bodyH - stripH;
 
-  const orbitPanel = (w: number, h: number): string[] =>
+  const orbitPanel = (w: number, h: number, wide = false): string[] =>
     frame(
       theme.bold(theme.fg("accent", t("net.title"))) + theme.fg("muted", ` · ${state.nodes.length}`),
-      opts.orbit(state, Math.max(0, w - 2), Math.max(0, h - 2), theme, { selectedId: opts.selectedId }),
+      opts.orbit(state, Math.max(0, w - 2), Math.max(0, h - 2), theme, { selectedId: opts.selectedId, ...(wide ? { small: true, wide: true } : {}) }),
       w,
       h,
       theme,
@@ -247,7 +247,7 @@ export function composeHud(state: HudState, width: number, height: number, theme
     if (mainH - feedH - orbitH < MIN_CHAT_H + 2) orbitH = 0;
     const chatH = mainH - feedH - orbitH;
     main = [
-      ...(orbitH > 0 ? orbitPanel(width, orbitH) : []),
+      ...(orbitH > 0 ? orbitPanel(width, orbitH, true) : []),
       ...(showDetail ? detailPanel(width, chatH) : chatPanel(width, chatH)),
       ...(feedH > 0 ? feedPanel(width, feedH) : []),
     ];
