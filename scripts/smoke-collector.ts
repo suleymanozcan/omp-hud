@@ -356,32 +356,40 @@ await idx.emit("session_start", {}, M.ctx);
 const wDock = M.widgets.at(-1);
 check("dock is ON by default (aboveEditor, key hud-dock)", wDock?.key === "hud-dock" && typeof wDock.content === "function" && wDock.options?.placement === "aboveEditor", wDock);
 check("status line is written at start", M.statuses.at(-1)?.key === "hud" && M.statuses.at(-1)?.text === "hud ○ ready", M.statuses.at(-1));
-check("idle dock: 500 ms timer", M.activeMs().join() === "500", M.activeMs());
+check("idle dock: 250 ms timer", M.activeMs().join() === "250", M.activeMs());
 if (typeof wDock?.content !== "function") throw new Error("no dock widget factory");
 const dock = (wDock.content as (t: unknown, th: unknown) => { render(w: number): readonly string[] })(M.tui, M.theme);
 const dockRows = dock.render(100);
-check("dock render: dockHeightFor rows (medium on a 24-row terminal = 9), width <= 100", dockRows.length === dockHeightFor("medium", 24) && dockRows.length === 9 && dockRows.every((l) => [...l.replace(/\x1b\[[0-9;]*m/g, "")].length <= 100), dockRows.length);
+check("dock render: dockHeightFor rows (default large on a 24-row terminal = 10, 45% cap), width <= 100", dockRows.length === dockHeightFor("large", 24) && dockRows.length === 10 && dockRows.every((l) => [...l.replace(/\x1b\[[0-9;]*m/g, "")].length <= 100), dockRows.length);
+check(
+  "dockHeightFor: small 8 / medium 12 / large 16 (45% cap, floor 4, 4-6 below 20 rows)",
+  [8, 12, 16].join() === (["small", "medium", "large"] as const).map((s) => dockHeightFor(s, 45)).join() &&
+    [8, 10, 10].join() === (["small", "medium", "large"] as const).map((s) => dockHeightFor(s, 24)).join() &&
+    [4, 5, 6].join() === (["small", "medium", "large"] as const).map((s) => dockHeightFor(s, 19)).join() &&
+    [4, 4, 4].join() === (["small", "medium", "large"] as const).map((s) => dockHeightFor(s, 8)).join() &&
+    dockHeightFor("large", Number.NaN) === 4,
+);
 
 // size / place
 {
   const placed = (key: string, placement: string): boolean => M.widgets.at(-1)?.key === key && M.widgets.at(-1)?.options?.placement === placement;
   await cmd.handler("size small", M.ctx);
-  check("/hud size small: note + 6 rows", M.notes.at(-1)?.startsWith("Dock size: small") === true && dock.render(100).length === 6, M.notes.at(-1));
+  check("/hud size small: note + 8 rows", M.notes.at(-1)?.startsWith("Dock size: small") === true && dock.render(100).length === 8, M.notes.at(-1));
   await cmd.handler("size huge", M.ctx);
-  check("/hud size huge: usage, size unchanged", M.notes.at(-1) === "Usage: /hud size small|medium|large" && dock.render(100).length === 6, M.notes.at(-1));
+  check("/hud size huge: usage, size unchanged", M.notes.at(-1) === "Usage: /hud size small|medium|large" && dock.render(100).length === 8, M.notes.at(-1));
   await cmd.handler("size large", M.ctx);
-  check("/hud size large: capped at 40% of 24 rows = 9", dock.render(100).length === dockHeightFor("large", 24) && dockHeightFor("large", 24) === 9);
+  check("/hud size large: capped at 45% of 24 rows = 10", dock.render(100).length === dockHeightFor("large", 24) && dockHeightFor("large", 24) === 10);
   await cmd.handler("size medium", M.ctx);
   await cmd.handler("place below", M.ctx);
   check("/hud place below: dock re-installed belowEditor", placed("hud-dock", "belowEditor") && M.widgets.at(-2)?.content === undefined && M.notes.at(-1) === "Dock place: below the editor", [M.widgets.at(-1), M.notes.at(-1)]);
   const below = (M.widgets.at(-1)!.content as (t: unknown, th: unknown) => { render(w: number): readonly string[] })(M.tui, M.theme);
-  check("below the editor the dock gets the bottom padding (9 + 1 rows)", below.render(100).length === 10, below.render(100).length);
+  check("below the editor the dock gets the bottom padding (10 + 1 rows)", below.render(100).length === 11, below.render(100).length);
   await cmd.handler("place sideways", M.ctx);
   check("/hud place sideways: usage", M.notes.at(-1) === "Usage: /hud place above|below", M.notes.at(-1));
   await cmd.handler("place above", M.ctx);
   check("/hud place above: back above the editor, no padding", placed("hud-dock", "aboveEditor") && M.notes.at(-1) === "Dock place: above the editor", M.notes.at(-1));
   const above = (M.widgets.at(-1)!.content as (t: unknown, th: unknown) => { render(w: number): readonly string[] })(M.tui, M.theme);
-  check("above the editor the dock has exactly dockHeightFor rows", above.render(100).length === 9, above.render(100).length);
+  check("above the editor the dock has exactly dockHeightFor rows", above.render(100).length === 10, above.render(100).length);
   await cmd.handler("", M.ctx);
   check("/hud closes the dock: widget removed, note, no timers", M.widgets.at(-1)?.content === undefined && M.notes.at(-1)?.startsWith("HUD dock: off") === true && M.activeMs().length === 0, [M.notes.at(-1), M.activeMs()]);
   await cmd.handler("", M.ctx);

@@ -88,7 +88,7 @@ const tr = {
     "omp-hud komutları:\n" +
     "  /hud              dock'u editörün yanında aç/kapat (varsayılan; yazmaya devam edebilirsiniz)\n" +
     "  /hud full         tam ekran HUD (Esc ile çıkış; açıkken yazılamaz)\n" +
-    "  /hud size         dock boyutu: small | medium | large; şimdi {size}\n" +
+    "  /hud size         dock boyutu: small 8 | medium 12 | large 16 satır (varsayılan large); şimdi {size}\n" +
     "  /hud place        dock yeri: above | below (editörün üstü | altı); şimdi {place}\n" +
     "  /hud demo         dock'ta sahte olay akışı (yeniden ya da `off` durdurur; `full` = tam ekran)\n" +
     "  /hud compact      editörün altında 1-3 satırlık küçük panel: on | off (dock'u kapatır)\n" +
@@ -297,7 +297,7 @@ const en: Record<MsgKey, string> = {
     "omp-hud commands:\n" +
     "  /hud              show/hide the dock next to the editor (default; you can keep typing)\n" +
     "  /hud full         full-screen HUD (Esc to close; no typing while open)\n" +
-    "  /hud size         dock size: small | medium | large; now {size}\n" +
+    "  /hud size         dock size: small 8 | medium 12 | large 16 rows (default large); now {size}\n" +
     "  /hud place        dock place: above | below the editor; now {place}\n" +
     "  /hud demo         simulated events in the dock (again or `off` stops; `full` = full screen)\n" +
     "  /hud compact      small 1-3 line panel below the editor: on | off (closes the dock)\n" +
