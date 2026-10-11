@@ -2,6 +2,7 @@
 // `pi.events` channels are not a documented contract: fields may be missing, everything is read defensively.
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import type { HudStore, HudTask, NodeStatus, TaskStatus } from "./types.ts";
+import { chatFromBranch, contentText } from "./chat.ts";
 import { MAIN_AGENT, type MsgKey, t } from "./i18n.ts";
 
 type Rec = Record<string, unknown>;
@@ -29,6 +30,8 @@ const LIFECYCLE_KEY: Record<NodeStatus, MsgKey> = {
 };
 
 const FEED_TEXT_MAX = 160;
+const CHAT_UPDATE_MS = 125; // streaming text reaches the store at most ~8 times per second
+const PENDING_MAX_MS = 3000; // a message sent from the HUD that omp never reported back is dropped once the agent has ended
 
 function rec(v: unknown): Rec | undefined {
   return typeof v === "object" && v !== null ? (v as Rec) : undefined;
@@ -93,6 +96,8 @@ export function attachCollector(piArg: unknown, store: HudStore): void {
   let streaming = false;
   let msgStartAt = 0;
   let firstUpdateAt = 0;
+  let chatId: string | undefined; // the streaming assistant message in the chat panel
+  let chatAt = 0;
 
   // --- subagent tracking ---
   let busSeen = false; // once the pi.events channel works, the ctx.agent fallback path is closed
@@ -105,6 +110,8 @@ export function attachCollector(piArg: unknown, store: HudStore): void {
     streaming = false;
     msgStartAt = 0;
     firstUpdateAt = 0;
+    chatId = undefined;
+    chatAt = 0;
     idByIndex.clear();
   }
 
@@ -293,12 +300,53 @@ export function attachCollector(piArg: unknown, store: HudStore): void {
     }
   }
 
+  function rebuildChat(ctx: ExtensionContext): void {
+    try {
+      const drafts = chatFromBranch(ctx.sessionManager.getBranch());
+      if (drafts.length > 0) store.loadChat(drafts);
+    } catch {
+      // history could not be read
+    }
+  }
+
+  /** A user message that omp reports: it either confirms one sent from the HUD or came from the editor. */
+  function userChat(message: { content?: unknown } | undefined): void {
+    const text = contentText(message?.content).trim();
+    if (text === "") return;
+    if (!store.resolvePendingChat(text)) store.addChat({ role: "user", text });
+  }
+
+  /** Streaming text of the assistant message: at most ~8 updates per second; the chat entry appears with the first text. */
+  function updateAssistantChat(message: { content?: unknown } | undefined): void {
+    const now = Date.now();
+    if (chatId !== undefined && now - chatAt < CHAT_UPDATE_MS) return;
+    chatAt = now;
+    const text = contentText(message?.content);
+    if (text === "") return;
+    if (chatId === undefined) chatId = store.addChat({ role: "assistant", text, streaming: true });
+    else store.updateChat(chatId, { text });
+  }
+
+  /** The finished assistant message: final text, streaming off; a message without text (tool calls only) leaves no trace. */
+  function endAssistantChat(message: { content?: unknown } | undefined): void {
+    const id = chatId;
+    chatId = undefined;
+    const text = message ? contentText(message.content) : undefined;
+    if (id === undefined) {
+      if (text !== undefined && text.trim() !== "") store.addChat({ role: "assistant", text });
+      return;
+    }
+    if (text !== undefined && text.trim() === "") store.removeChat(id);
+    else store.updateChat(id, text === undefined ? { streaming: false } : { text, streaming: false });
+  }
+
   // --- session ---
   const onSessionReset = guard<Rec>((_e, ctx) => {
     if (!main(ctx)) return;
     resetLocal();
     store.reset();
     rebuildTodos(ctx);
+    rebuildChat(ctx);
   });
   pi.on("session_start", onSessionReset);
   pi.on("session_switch", onSessionReset);
@@ -374,6 +422,8 @@ export function attachCollector(piArg: unknown, store: HudStore): void {
         }
       }
       store.setCoreStatus(failed ? "error" : "done");
+      endAssistantChat(undefined);
+      store.expirePendingChat(PENDING_MAX_MS);
     }),
   );
 
@@ -383,10 +433,15 @@ export function attachCollector(piArg: unknown, store: HudStore): void {
     guard((event, ctx) => {
       if (ctx.agent?.kind === "sub") return;
       const role = event.message?.role;
+      if (role === "user") {
+        userChat(event.message);
+        return;
+      }
       if (role !== undefined && role !== "assistant") return;
       streaming = false;
       msgStartAt = Date.now();
       firstUpdateAt = 0;
+      chatId = undefined; // the chat message is created when the first text arrives
     }),
   );
 
@@ -396,6 +451,7 @@ export function attachCollector(piArg: unknown, store: HudStore): void {
       if (ctx.agent?.kind === "sub") return;
       const role = event.message?.role;
       if (role !== undefined && role !== "assistant") return;
+      if (role === "assistant") updateAssistantChat(event.message);
       if (streaming) return; // high frequency: only a flag
       streaming = true;
       firstUpdateAt = Date.now();
@@ -422,6 +478,7 @@ export function attachCollector(piArg: unknown, store: HudStore): void {
       )
         return;
       main(ctx);
+      endAssistantChat(message);
       const wasStreaming = streaming;
       streaming = false;
       if (usage) {

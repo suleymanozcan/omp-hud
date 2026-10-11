@@ -53,6 +53,8 @@ declare module "@oh-my-pi/pi-coding-agent" {
       role?: string;
       toolName?: string;
       details?: unknown;
+      content?: unknown;
+      timestamp?: number;
     };
     [key: string]: unknown;
   }
@@ -100,6 +102,8 @@ declare module "@oh-my-pi/pi-coding-agent" {
     sessionManager: SessionManagerLike;
     agent?: AgentInfo;
     getContextUsage(): ContextUsage | undefined;
+    /** False while the agent is streaming (a turn is running). */
+    isIdle(): boolean;
     setInterval(fn: (...args: unknown[]) => void, ms: number, ...args: unknown[]): unknown;
     setTimeout(fn: (...args: unknown[]) => void, ms: number, ...args: unknown[]): unknown;
     clearTimer(timer: unknown): void;
@@ -121,9 +125,9 @@ declare module "@oh-my-pi/pi-coding-agent" {
     agent_end: Record<string, unknown>;
     turn_start: Record<string, unknown>;
     turn_end: Record<string, unknown>;
-    message_start: { message?: { role?: string } };
-    message_update: { message?: { role?: string } };
-    message_end: { message?: { role?: string; usage?: Usage } };
+    message_start: { message?: { role?: string; content?: unknown } };
+    message_update: { message?: { role?: string; content?: unknown } };
+    message_end: { message?: { role?: string; content?: unknown; usage?: Usage } };
     tool_execution_start: { toolCallId?: string; toolName?: string; args?: unknown; intent?: string };
     tool_execution_end: { toolCallId?: string; toolName?: string; result?: unknown; isError?: boolean };
     tool_result: { toolName?: string; details?: unknown; isError?: boolean };
@@ -153,6 +157,8 @@ declare module "@oh-my-pi/pi-coding-agent" {
     ): void;
     registerCommand(name: string, command: RegisteredCommand): void;
     events?: ExtensionEventBus;
+    /** Submits user text without slash-command or template expansion. Omitting `deliverAs` starts a turn when idle (a steer while streaming). */
+    sendUserMessage(content: string, options?: { deliverAs?: "steer" | "followUp" | "aside"; attribution?: "user" | "agent" }): void;
   }
 }
 

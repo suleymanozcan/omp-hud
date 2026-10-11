@@ -1,5 +1,6 @@
 // HUD store: implementation of the HudStore contract from types.ts.
 // The `state` object is never replaced (it is updated in place); `version` increases on a real change and subscribers are called.
+import { CHAT_MAX, cleanChatText, matchKey, type ChatDraft, type ChatMessage } from "./chat.ts";
 import {
   FEED_MAX,
   MAX_NODES,
@@ -41,9 +42,17 @@ export function createStore(): HudStore {
     feed: [],
     now: start,
     phase: 0,
+    chatRev: 0,
   };
   const subs = new Set<() => void>();
   let version = 0;
+  const chat: ChatMessage[] = [];
+  state.chat = chat;
+  let chatSeq = 0;
+  const findChat = (id: string): ChatMessage | undefined => {
+    for (let i = chat.length - 1; i >= 0; i--) if (chat[i]!.id === id) return chat[i];
+    return undefined;
+  };
 
   function changed(): void {
     version++;
@@ -204,7 +213,106 @@ export function createStore(): HudStore {
       state.tasks.length = 0;
       Object.assign(state.tokens, freshTokens());
       state.feed.length = 0;
+      chat.length = 0;
+      state.chatRev = (state.chatRev ?? 0) + 1;
       state.now = now;
+      changed();
+    },
+
+    addChat(draft: ChatDraft) {
+      const id = draft.id ?? `c${++chatSeq}`;
+      const msg: ChatMessage = {
+        id,
+        role: draft.role,
+        text: cleanChatText(draft.text),
+        t: draft.t ?? Date.now(),
+        streaming: draft.streaming === true,
+        rev: 0,
+      };
+      if (draft.pending !== undefined) msg.pending = draft.pending;
+      chat.push(msg);
+      if (chat.length > CHAT_MAX) chat.splice(0, chat.length - CHAT_MAX);
+      state.chatRev = (state.chatRev ?? 0) + 1;
+      changed();
+      return id;
+    },
+
+    updateChat(id, patch) {
+      const m = findChat(id);
+      if (!m) return;
+      let structural = false;
+      if (patch.text !== undefined) {
+        const text = cleanChatText(patch.text);
+        if (text !== m.text) {
+          m.text = text;
+          m.rev++;
+          state.chatRev = (state.chatRev ?? 0) + 1;
+        }
+      }
+      if (patch.streaming !== undefined && patch.streaming !== m.streaming) {
+        m.streaming = patch.streaming;
+        structural = true;
+      }
+      if (patch.pending === null) {
+        if (m.pending !== undefined) {
+          delete m.pending;
+          structural = true;
+        }
+      } else if (patch.pending !== undefined && patch.pending !== m.pending) {
+        m.pending = patch.pending;
+        structural = true;
+      }
+      if (structural) changed();
+    },
+
+    removeChat(id) {
+      const i = chat.findIndex((m) => m.id === id);
+      if (i < 0) return;
+      chat.splice(i, 1);
+      state.chatRev = (state.chatRev ?? 0) + 1;
+      changed();
+    },
+
+    resolvePendingChat(text) {
+      const key = matchKey(text);
+      const m = chat.find((x) => x.role === "user" && x.pending !== undefined && matchKey(x.text) === key);
+      if (!m) return false;
+      delete m.pending;
+      state.chatRev = (state.chatRev ?? 0) + 1;
+      changed();
+      return true;
+    },
+
+    expirePendingChat(olderThanMs) {
+      const cutoff = Date.now() - olderThanMs;
+      let removed = false;
+      for (let i = chat.length - 1; i >= 0; i--) {
+        const m = chat[i]!;
+        if (m.pending !== undefined && m.t < cutoff) {
+          chat.splice(i, 1);
+          removed = true;
+        }
+      }
+      if (!removed) return;
+      state.chatRev = (state.chatRev ?? 0) + 1;
+      changed();
+    },
+
+    loadChat(drafts) {
+      chat.length = 0;
+      for (const d of drafts) {
+        chat.push({
+          id: d.id ?? `c${++chatSeq}`,
+          role: d.role,
+          text: cleanChatText(d.text),
+          t: d.t ?? Date.now(),
+          streaming: d.streaming === true,
+          rev: 0,
+          ...(d.pending !== undefined ? { pending: d.pending } : {}),
+        });
+      }
+      if (chat.length > CHAT_MAX) chat.splice(0, chat.length - CHAT_MAX);
+      state.chatRev = (state.chatRev ?? 0) + 1;
       changed();
     },
   };

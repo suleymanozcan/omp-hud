@@ -1,4 +1,5 @@
 // Shared contract between modules (single source of truth for the data shapes).
+import type { ChatDraft, ChatMessage } from "./chat.ts";
 
 export const MAX_NODES = 32;
 export const FEED_MAX = 100;
@@ -67,6 +68,10 @@ export interface HudState {
   feed: HudFeedItem[]; // at most FEED_MAX, oldest first
   now: number; // ms epoch (updated by tickAnimation)
   phase: number; // animation phase in seconds (float, advanced by tickAnimation)
+  /** Conversation (full-screen panel only), oldest first, at most CHAT_MAX. Absent in states built by hand. */
+  chat?: ChatMessage[];
+  /** Bumped on EVERY chat text change, including the coalesced streaming ones that do not bump the store version. */
+  chatRev?: number;
 }
 
 /** omp theme or a test theme. Render code never writes raw colors: it uses only this (raw RGB is allowed when truecolor is set). */
@@ -92,6 +97,17 @@ export interface HudStore {
   setTokPerSec(v: number): void;
   tickAnimation(dtMs: number): void; // advances now and phase; does NOT bump version (redraw requests come from the timer)
   reset(): void;
+  /** Adds a message (CHAT_MAX ring buffer) and returns its id. Text is sanitized and clipped. */
+  addChat(draft: ChatDraft): string;
+  /** Text changes only bump `chatRev` (no version bump, no subscriber call: streaming is high frequency); other changes bump the version. */
+  updateChat(id: string, patch: { text?: string; streaming?: boolean; pending?: ChatMessage["pending"] | null }): void;
+  removeChat(id: string): void;
+  /** A user message reported by omp: clears the oldest pending message with the same text. False when none matched. */
+  resolvePendingChat(text: string): boolean;
+  /** Removes pending messages older than `olderThanMs` (the queue they waited in was emptied). */
+  expirePendingChat(olderThanMs: number): void;
+  /** Replaces the whole conversation (session start). */
+  loadChat(drafts: readonly ChatDraft[]): void;
 }
 
 // --- Cross-module exports (signatures are stable) ---
