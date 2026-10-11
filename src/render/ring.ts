@@ -6,11 +6,18 @@ import { BrailleCanvas, type Palette, paletteFor, shade } from "./canvas";
 const TAU = Math.PI * 2;
 /** Core radius / total orbit radius (shared with orbit-scene). */
 export const CORE_RATIO = 0.4;
-const RING_FRAC = [0.7, 0.85, 0.99];
-const RING_MAX = [10, 12, 10];
-const MIN_SPACING = 9; // sub-pixels
-const RING_DIR = [1, -1, 1];
-const RING_OFFSET = [0, 0.4, 0.8];
+/** Ring geometry: radius fractions, node caps per ring, travel direction, start offsets, minimum node spacing (sub-pixels). */
+export interface RingSpec {
+  frac: readonly number[];
+  max: readonly number[];
+  dir: readonly number[];
+  offset: readonly number[];
+  spacing: number;
+}
+/** The dock / compact look: three rings. */
+export const CLASSIC_RINGS: RingSpec = { frac: [0.7, 0.85, 0.99], max: [10, 12, 10], dir: [1, -1, 1], offset: [0, 0.4, 0.8], spacing: 9 };
+/** The full-screen scene: four rings with wider node spacing (labels need room). */
+export const BIG_RINGS: RingSpec = { frac: [0.6, 0.74, 0.87, 1], max: [6, 9, 12, 14], dir: [1, -1, 1, -1], offset: [0, 0.35, 0.7, 1.05], spacing: 22 };
 const TRANSITION_MS = 600;
 
 export interface NodePos {
@@ -34,14 +41,17 @@ function ellipsePerimeter(a: number, b: number): number {
 }
 
 /** `aspect` = x radius / y radius of the orbit (1 = circle: the classic scene, same numbers as before). */
-function ringCapacity(radius: number, k: number, aspect = 1): number {
-  const len = aspect === 1 ? TAU * RING_FRAC[k] * radius : ellipsePerimeter(RING_FRAC[k] * radius * aspect, RING_FRAC[k] * radius);
-  return Math.min(RING_MAX[k], Math.max(1, Math.floor(len / MIN_SPACING)));
+function ringCapacity(radius: number, k: number, aspect: number, spec: RingSpec): number {
+  const f = spec.frac[k]!;
+  const len = aspect === 1 ? TAU * f * radius : ellipsePerimeter(f * radius * aspect, f * radius);
+  return Math.min(spec.max[k]!, Math.max(1, Math.floor(len / spec.spacing)));
 }
 
 /** Upper bound on visible nodes (the rest collapse into `+N`). */
-export function nodeCapacity(radius: number, aspect = 1): number {
-  return Math.min(MAX_NODES, ringCapacity(radius, 0, aspect) + ringCapacity(radius, 1, aspect) + ringCapacity(radius, 2, aspect));
+export function nodeCapacity(radius: number, aspect = 1, spec: RingSpec = CLASSIC_RINGS): number {
+  let sum = 0;
+  for (let k = 0; k < spec.frac.length; k++) sum += ringCapacity(radius, k, aspect, spec);
+  return Math.min(MAX_NODES, sum);
 }
 
 function pickVisible(nodes: readonly HudNode[], cap: number): void {
@@ -72,19 +82,27 @@ function pickVisible(nodes: readonly HudNode[], cap: number): void {
 
 /**
  * Node positions (sub-pixels). THE RETURNED ARRAY AND OBJECTS ARE REUSED: they are valid until the next call.
- * `radius` is the total orbit radius (the y radius when `aspect` != 1, then x = radius * aspect); the first 10 nodes use
- * the inner ring, the rest the 2nd and 3rd rings.
+ * `radius` is the total orbit radius (the y radius when `aspect` != 1, then x = radius * aspect); the first nodes use
+ * the inner ring, the rest the following rings of `spec`.
  */
-export function layoutNodes(nodes: readonly HudNode[], cx: number, cy: number, radius: number, phase: number, aspect = 1): readonly NodePos[] {
-  pickVisible(nodes, nodeCapacity(radius, aspect));
+export function layoutNodes(
+  nodes: readonly HudNode[],
+  cx: number,
+  cy: number,
+  radius: number,
+  phase: number,
+  aspect = 1,
+  spec: RingSpec = CLASSIC_RINGS,
+): readonly NodePos[] {
+  pickVisible(nodes, nodeCapacity(radius, aspect, spec));
   result.length = 0;
   let idx = 0;
   const total = picked.length;
-  for (let k = 0; k < 3 && idx < total; k++) {
-    const count = Math.min(ringCapacity(radius, k, aspect), total - idx);
-    const r = radius * RING_FRAC[k];
+  for (let k = 0; k < spec.frac.length && idx < total; k++) {
+    const count = Math.min(ringCapacity(radius, k, aspect, spec), total - idx);
+    const r = radius * spec.frac[k]!;
     const spacing = Math.min(TAU / count, 0.9);
-    const base = -Math.PI / 2 + RING_OFFSET[k] + RING_DIR[k] * 0.05 * phase;
+    const base = -Math.PI / 2 + spec.offset[k]! + spec.dir[k]! * 0.05 * phase;
     for (let s = 0; s < count; s++, idx++) {
       const node = picked[idx];
       let a = base + (s * TAU) / count;
@@ -187,17 +205,63 @@ export interface RingFx {
   coreR?: number;
   /** Scale of the node glyphs (default 1). */
   nodeScale?: number;
+  /** Ring geometry (default: the classic three rings). */
+  rings?: RingSpec;
+  /** Full-screen look: every ring of `rings` is drawn (unused ones fainter), with tick marks and a sweep on the outermost ring. */
+  scaffold?: boolean;
+  /** Number of placeholder sparkles of an idle scene (default 6). */
+  sparks?: number;
 }
 
 const SPARKS = 6;
 
-/** Placeholder sparkles on two faint orbits (only drawn while there are no real nodes; dim, slowly turning, not nodes). */
-function drawPlaceholders(c: BrailleCanvas, pal: Palette, cx: number, cy: number, radius: number, aspect: number, t: number, s: number): void {
-  for (let k = 1; k < 3; k++) c.ellipse(cx, cy, radius * RING_FRAC[k] * aspect, radius * RING_FRAC[k], shade(pal, "accent", 0.28), 2);
-  for (let i = 0; i < SPARKS; i++) {
-    const k = 1 + (i & 1);
-    const r = radius * RING_FRAC[k];
-    const a = -Math.PI / 2 + (i * TAU) / SPARKS + (k === 1 ? 1 : -1) * 0.22 * t;
+/** Faint rings for every slot, tick marks and a slow scanner arc on the outer ring (the full-screen "network" look). */
+function drawScaffold(c: BrailleCanvas, pal: Palette, cx: number, cy: number, radius: number, aspect: number, spec: RingSpec, used: number, t: number): void {
+  const n = spec.frac.length;
+  for (let k = 0; k < n; k++) {
+    const f = spec.frac[k]!;
+    c.ellipse(cx, cy, radius * f * aspect, radius * f, shade(pal, "accent", k < used ? 0.34 : 0.17), 2);
+  }
+  const rx = radius * spec.frac[n - 1]! * aspect;
+  const ry = radius * spec.frac[n - 1]!;
+  const ticks = 48;
+  for (let i = 0; i < ticks; i++) {
+    const a = (i * TAU) / ticks;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    const gx = ca / rx;
+    const gy = sa / ry;
+    const gl = Math.hypot(gx, gy) || 1;
+    const len = i % 4 === 0 ? 5 : 2.5;
+    const x0 = cx + ca * rx;
+    const y0 = cy + sa * ry;
+    c.line(x0, y0, x0 - (gx / gl) * len, y0 - (gy / gl) * len, shade(pal, "accent", i % 4 === 0 ? 0.45 : 0.28));
+  }
+  const a0 = 0.7 * t;
+  c.ellipseArc(cx, cy, rx, ry, a0 - 0.7, a0, shade(pal, "accent", 0.4));
+  c.ellipseArc(cx, cy, rx, ry, a0 - 0.2, a0, shade(pal, "accent", 0.95));
+}
+
+/** Placeholder sparkles on the faint orbits (only drawn while there are no real nodes; dim, slowly turning, not nodes). */
+function drawPlaceholders(
+  c: BrailleCanvas,
+  pal: Palette,
+  cx: number,
+  cy: number,
+  radius: number,
+  aspect: number,
+  t: number,
+  s: number,
+  spec: RingSpec,
+  scaffold: boolean,
+  sparks: number,
+): void {
+  const orbits = spec.frac.length - 1;
+  if (!scaffold) for (let k = 1; k < spec.frac.length; k++) c.ellipse(cx, cy, radius * spec.frac[k]! * aspect, radius * spec.frac[k]!, shade(pal, "accent", 0.28), 2);
+  for (let i = 0; i < sparks; i++) {
+    const k = 1 + (i % orbits);
+    const r = radius * spec.frac[k]!;
+    const a = -Math.PI / 2 + (i * TAU) / sparks + (k & 1 ? 1 : -1) * 0.22 * t;
     const x = cx + Math.cos(a) * r * aspect;
     const y = cy + Math.sin(a) * r;
     const tw = 0.5 + 0.5 * Math.sin(TAU * 0.35 * t + i * 1.9);
@@ -224,16 +288,20 @@ export function drawRing(
   const t = state.phase;
   const aspect = fx?.aspect ?? 1;
   const coreR = fx?.coreR ?? radius * CORE_RATIO;
-  const pos = layoutNodes(state.nodes, cx, cy, radius, t, aspect);
+  const spec = fx?.rings ?? CLASSIC_RINGS;
+  const pos = layoutNodes(state.nodes, cx, cy, radius, t, aspect, spec);
 
   let rings = 0;
   for (const p of pos) if (p.ring + 1 > rings) rings = p.ring + 1;
   const s = fx?.nodeScale ?? 1;
-  for (let k = 0; k < rings; k++) {
-    if (aspect === 1 && !fx?.idleLife) c.circle(cx, cy, radius * RING_FRAC[k], shade(pal, "dim", 0.5), 4);
-    else c.ellipse(cx, cy, radius * RING_FRAC[k] * aspect, radius * RING_FRAC[k], shade(pal, "accent", 0.28), 2);
+  if (fx?.scaffold) drawScaffold(c, pal, cx, cy, radius, aspect, spec, rings, t);
+  else {
+    for (let k = 0; k < rings; k++) {
+      if (aspect === 1 && !fx?.idleLife) c.circle(cx, cy, radius * spec.frac[k]!, shade(pal, "dim", 0.5), 4);
+      else c.ellipse(cx, cy, radius * spec.frac[k]! * aspect, radius * spec.frac[k]!, shade(pal, "accent", 0.28), 2);
+    }
   }
-  if (fx?.idleLife && pos.length === 0) drawPlaceholders(c, pal, cx, cy, radius, aspect, t, s);
+  if (fx?.idleLife && pos.length === 0) drawPlaceholders(c, pal, cx, cy, radius, aspect, t, s, spec, fx.scaffold === true, fx.sparks ?? SPARKS);
 
   for (let i = 0; i < pos.length; i++) {
     const p = pos[i];
