@@ -1,0 +1,29 @@
+{
+  "name": "omp-hud",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Terminal HUD for oh-my-pi: animated agent core, sub-agent nodes, live feed, tasks and token gauges",
+  "license": "MIT",
+  "author": "suleymanozcan",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/suleymanozcan/omp-hud.git"
+  },
+  "homepage": "https://github.com/suleymanozcan/omp-hud#readme",
+  "bugs": {
+    "url": "https://github.com/suleymanozcan/omp-hud/issues"
+  },
+  "keywords": ["omp", "oh-my-pi", "extension", "tui", "hud", "agents"],
+  "files": [
+    "index.ts",
+    "src",
+    "scripts",
+    "README.md",
+    "README.tr.md",
+    "LICENSE",
+    "docs/img"
+  ],
+  "omp": {
+    "extensions": ["./index.ts"]
+  }
+}
