@@ -1,6 +1,6 @@
 {
   "name": "omp-hud",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "type": "module",
   "description": "Terminal HUD for oh-my-pi: animated agent core, sub-agent nodes, live feed, tasks and token gauges",
   "license": "MIT",
