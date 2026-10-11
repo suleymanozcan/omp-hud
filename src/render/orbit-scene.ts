@@ -15,6 +15,9 @@ const SMALL_MIN_ROWS = 5;
 const SMALL_MIN_RADIUS = 6;
 const EMPTY_CORE_SCALE = 2.1; // core radius = 0.4 * 2.1 = 84% of the orbit radius
 const CORE_EASE_MS = 400;
+const WIDE_MARGIN = 6; // max sub-pixels kept free around the elliptic orbits (node glow radius); less on short areas
+const WIDE_CORE_RATIO = 0.56;
+const WIDE_EMPTY_CORE_SCALE = 1.5;
 
 const STATUS_KEY: Record<CoreStatus, MsgKey> = {
   idle: "status.idle",
@@ -44,6 +47,22 @@ function easeCoreScale(target: number, now: number): number {
   const step = (dt / CORE_EASE_MS) * (EMPTY_CORE_SCALE - 1);
   coreScale = coreScale < target ? Math.min(target, coreScale + step) : Math.max(target, coreScale - step);
   return coreScale;
+}
+
+/** Short caption under the core of an idle wide dock scene: `main agent · ready` (or just the status when narrow). */
+function idleLabel(c: BrailleCanvas, state: HudState, pal: Palette, cy: number, coreR: number, width: number, height: number): void {
+  const status = statusLine(state);
+  const prefix = `${t("scene.mainAgent")} · `;
+  const usePrefix = prefix.length + status.length + 4 <= width;
+  const text = ` ${usePrefix ? prefix : ""}${status} `;
+  if (text.length > width) return;
+  const col = Math.floor((width - text.length) / 2);
+  const row = Math.min(height - 1, Math.floor((cy + coreR) / 4) + 1);
+  const hue = state.core.status === "error" ? "error" : state.core.status === "done" ? "success" : "accent";
+  if (usePrefix) {
+    c.text(col, row, ` ${prefix}`, shade(pal, "muted", 0.85));
+    c.text(col + prefix.length + 1, row, `${status} `, shade(pal, hue, 1));
+  } else c.text(col, row, text, shade(pal, hue, 1));
 }
 
 /** Single-cell width guarantee: anything outside Latin-1/Latin Extended-A becomes `?`; control characters are dropped. */
@@ -159,18 +178,22 @@ function placeLabel(c: BrailleCanvas, p: NodePos, cx: number, pal: Palette, sele
  *
  * `small` relaxes the thresholds (16 columns / 5 rows, smaller radius) for dock-sized areas. `labels` (default: `!small`)
  * controls the node-name labels and the status row; without it the scene is only core + orbits + node dots and uses every row.
+ * `wide` (needs `small`) is the dock scene for wide areas: the core stays a circle (square sub-pixels), the orbits become
+ * ellipses that fill the whole area, the resting core is brighter, and an idle scene (no nodes) shows dim placeholder
+ * sparkles plus a short status label under the core.
  */
 export function renderOrbitScene(
   state: HudState,
   width: number,
   height: number,
   theme: HudTheme,
-  opts?: { selectedId?: string; small?: boolean; labels?: boolean },
+  opts?: { selectedId?: string; small?: boolean; labels?: boolean; wide?: boolean },
 ): string[] {
   width = Math.floor(width);
   height = Math.floor(height);
   if (!(width > 0) || !(height > 0)) return [];
   const small = opts?.small === true;
+  const wide = small && opts?.wide === true;
   const labels = opts?.labels ?? !small;
   if (width < (small ? SMALL_MIN_COLS : MIN_COLS) || height < (small ? SMALL_MIN_ROWS : MIN_ROWS)) return tinyScene(state, width, height, theme);
 
@@ -190,13 +213,25 @@ export function renderOrbitScene(
   const cx = (pw - 1) / 2;
   const cy = (ph - 1) / 2;
   const labelRoom = labels ? Math.min(small ? 10 : 22, pw * 0.15) : 0;
-  const radius = Math.min(ph / 2 - (small ? 2 : 3), pw / 2 - 2 - labelRoom);
+  let radius = Math.min(ph / 2 - (small ? 2 : 3), pw / 2 - 2 - labelRoom);
+  let aspect = 1;
+  if (wide) {
+    // y radius from the height, x radius from the width: the orbits fill the area (never narrower than a circle).
+    const margin = Math.min(WIDE_MARGIN, Math.max(3.5, ph * 0.12));
+    const ry = ph / 2 - margin;
+    const rx = pw / 2 - margin;
+    radius = Math.min(ry, rx);
+    aspect = rx / radius;
+  }
   if (radius < (small ? SMALL_MIN_RADIUS : 10)) return tinyScene(state, width, height, theme);
 
-  const pos = drawRing(c, state, cx, cy, radius, theme, opts?.selectedId);
+  const ratio = wide ? WIDE_CORE_RATIO : CORE_RATIO;
+  const pos = drawRing(c, state, cx, cy, radius, theme, opts?.selectedId, wide ? { aspect, idleLife: true, coreR: radius * ratio, nodeScale: Math.min(1.7, Math.max(1, radius / 16)) } : undefined);
   // Dock-sized scene without labels: with no nodes the core grows to fill the area (eased, so a first node does not make it jump).
-  const coreR = radius * CORE_RATIO * (small && !labels ? easeCoreScale(pos.length === 0 ? EMPTY_CORE_SCALE : 1, state.now) : 1);
-  drawCore(c, state, cx, cy, coreR, theme);
+  const idle = pos.length === 0;
+  const coreR = radius * ratio * (small && !labels ? easeCoreScale(idle ? (wide ? WIDE_EMPTY_CORE_SCALE : EMPTY_CORE_SCALE) : 1, state.now) : 1);
+  drawCore(c, state, cx, cy, coreR, theme, wide);
+  if (wide && idle) idleLabel(c, state, pal, cy, coreR, width, height);
 
   const hidden = state.nodes.length - pos.length;
   if (!labels) {
