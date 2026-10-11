@@ -2,7 +2,7 @@
 // so a line is submitted through omp's own editor while the HUD is hidden; completion comes from omp's autocomplete provider.
 // Everything here is duck-typed against undocumented TUI surfaces (`getFocused`, `hasOverlay`, `children`; verified on omp 18.8.9):
 // when one is missing the functions say so instead of throwing.
-import type { Completion, Suggestion, Suggestions } from "./chat.ts";
+import { sanitizeChatText, type Completion, type Suggestion, type Suggestions } from "./chat.ts";
 
 export const POLL_MS = 50; // how often the focus is looked at after a submit
 export const SETTLE_MS = 200; // a command that has not taken the focus away by then is treated as a "transcript only" command
@@ -64,6 +64,11 @@ function str(v: unknown): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
 
+/** Text of a completion item for the screen: no ANSI or control characters, one line. */
+function clean(v: string | undefined): string {
+  return v === undefined ? "" : sanitizeChatText(v).replace(/\s+/g, " ").trim();
+}
+
 /** `{items, prefix}` of the provider -> `Suggestions`; null when empty or malformed. */
 export function normalizeSuggestions(raw: unknown): Suggestions | null {
   const r = rec(raw);
@@ -73,13 +78,13 @@ export function normalizeSuggestions(raw: unknown): Suggestions | null {
     const o = rec(it);
     const value = str(o?.value);
     if (!o || value === undefined) continue;
-    const description = str(o.description);
-    const argumentHint = str(o.argumentHint);
+    const description = clean(str(o.description));
+    const argumentHint = clean(str(o.argumentHint));
     items.push({
       value,
-      label: str(o.label) ?? value,
-      ...(description !== undefined && description !== "" ? { description } : {}),
-      ...(argumentHint !== undefined && argumentHint !== "" ? { argumentHint } : {}),
+      label: clean(str(o.label)) || value,
+      ...(description !== "" ? { description } : {}),
+      ...(argumentHint !== "" ? { argumentHint } : {}),
       raw: it,
     });
   }

@@ -129,8 +129,6 @@ declare module "@oh-my-pi/pi-coding-agent" {
     setInterval(fn: (...args: unknown[]) => void, ms: number, ...args: unknown[]): unknown;
     setTimeout(fn: (...args: unknown[]) => void, ms: number, ...args: unknown[]): unknown;
     clearTimer(timer: unknown): void;
-    /** Reloads extensions, skills and rules from disk (command handlers only). */
-    reload?(): Promise<void>;
   }
 
   export type ExtensionCommandContext = ExtensionContext;

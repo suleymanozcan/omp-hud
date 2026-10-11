@@ -131,7 +131,7 @@ export class FullHud implements Component {
       inputRow: this.input.render(width, this.theme, ct("chat.placeholder")),
       inputEmpty: this.input.isEmpty,
       command: kind !== "text" && kind !== "hud",
-      ...(pal ? { palette: renderPalette(pal.items, pal.sel, pal.top, palRows, width, this.theme) } : {}),
+      ...(pal ? { palette: renderPalette(pal.items, pal.sel, pal.top, palRows, width, this.theme, pal.prefix.startsWith("/")) } : {}),
     };
     this.cacheLines = composeHud(state, width, rows, this.theme, opts);
     this.cacheKey = key;

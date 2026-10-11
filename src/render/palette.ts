@@ -15,13 +15,15 @@ export function paletteTop(top: number, selected: number, rows: number, total: n
 }
 
 /** Exactly `min(rows, items left)` rows of exactly `width` cells; the selected one is reversed. */
-export function renderPalette(items: readonly Suggestion[], selected: number, top: number, rows: number, width: number, theme: HudTheme): string[] {
+export function renderPalette(items: readonly Suggestion[], selected: number, top: number, rows: number, width: number, theme: HudTheme, slashNames = false): string[] {
   const shown = items.slice(top, top + rows);
-  const widest = Math.max(1, ...shown.map((s) => vw(s.label)));
+  // omp's command items carry bare names (`tools`): the list shows them the way they are typed.
+  const label = (s: Suggestion): string => (slashNames && !s.label.startsWith("/") ? `/${s.label}` : s.label);
+  const widest = Math.max(1, ...shown.map((s) => vw(label(s))));
   const nameW = Math.min(widest, NAME_MAX, Math.max(8, Math.floor((width - 4) * 0.4)));
   return shown.map((s, i) => {
     const on = top + i === selected;
-    const name = padEnd(s.label, nameW);
+    const name = padEnd(label(s), nameW);
     const hint = s.argumentHint ? ` ${s.argumentHint}` : "";
     const rest = Math.max(0, width - 2 - nameW - 1);
     const desc = s.description ? s.description.replace(/\s+/g, " ") : "";
