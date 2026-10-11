@@ -7,6 +7,7 @@ import type { createStore } from "../src/store.ts";
 import type { DemoDriver } from "../src/demo.ts";
 import type { FullHud } from "../src/components/full-hud.ts";
 import type { CompactHud } from "../src/components/compact-hud.ts";
+import type { DockHud, dockHeightFor } from "../src/components/dock-hud.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
@@ -21,6 +22,7 @@ const HELP = `HUD preview (no omp needed)
 Usage:
   bun scripts/preview.ts --frames N [--width W] [--height H] [--at 0,5,12,20,30] [--html out.html] [--compact]
   bun scripts/preview.ts --live [--compact]
+  bun scripts/preview.ts --dock [--size small|medium|large] [--width W] [--rows R] [--at 3,14,24] [--html out.html]
 
 Options:
   --frames N       print N frames (evenly spread over 2..42 s unless --at is given)
@@ -29,11 +31,15 @@ Options:
   --html FILE      write all frames into one HTML file (black background, Menlo, fixed cell)
   --columns K      grid columns in the HTML output (default 1: stacked)
   --compact        also render the compact widget below every frame
+  --dock           render the dock (panel above the editor) instead of the fullscreen HUD
+  --size S         dock size: small (6 rows) | medium (9, default) | large (12); capped by --rows
+  --rows R         terminal rows the dock height is derived from (default 40)
   --live           watch live in a real terminal on the alternate screen (~15 fps; Esc / q / Ctrl-C quits)
   --help           this help
 
 Language: set OMP_HUD_LANG=en or OMP_HUD_LANG=tr.
 Example (visual check): bun scripts/preview.ts --frames 4 --width 140 --height 40 --html /tmp/hud.html
+Example (dock): bun scripts/preview.ts --dock --size medium --width 130 --rows 40 --at 3,14,24,36 --html /tmp/dock.html
 `;
 
 interface Args {
@@ -46,10 +52,13 @@ interface Args {
   compact: boolean;
   live: boolean;
   help: boolean;
+  dock: boolean;
+  size: "small" | "medium" | "large";
+  rows: number;
 }
 
 function parseArgs(argv: string[]): Args | string {
-  const a: Args = { width: 140, height: 40, columns: 1, compact: false, live: false, help: false };
+  const a: Args = { width: 140, height: 40, columns: 1, compact: false, live: false, help: false, dock: false, size: "medium", rows: 40 };
   const num = (flag: string, v: string | undefined): number | string => {
     const n = Number(v);
     return v !== undefined && Number.isFinite(n) && n > 0 ? Math.floor(n) : `${flag} needs a positive number`;
@@ -68,6 +77,21 @@ function parseArgs(argv: string[]): Args | string {
       case "--compact":
         a.compact = true;
         break;
+      case "--dock":
+        a.dock = true;
+        break;
+      case "--size":
+        if (v !== "small" && v !== "medium" && v !== "large") return "--size needs small, medium or large";
+        a.size = v;
+        i++;
+        break;
+      case "--rows": {
+        const n = num(f, v);
+        if (typeof n === "string") return n;
+        a.rows = n;
+        i++;
+        break;
+      }
       case "--frames":
       case "--width":
       case "--height":
@@ -128,10 +152,12 @@ interface Loaded {
   DemoDriver: typeof DemoDriver;
   FullHud: typeof FullHud;
   CompactHud?: typeof CompactHud;
+  DockHud?: typeof DockHud;
+  dockHeightFor?: typeof dockHeightFor;
   vw: (s: string) => number;
 }
 
-async function load(needCompact: boolean): Promise<Loaded> {
+async function load(needCompact: boolean, needDock = false): Promise<Loaded> {
   installPiTuiShim();
   const need = async <T,>(label: string, loader: () => Promise<T>): Promise<T> => {
     try {
@@ -149,11 +175,14 @@ async function load(needCompact: boolean): Promise<Loaded> {
   const full = await need("src/components/full-hud.ts", () => import("../src/components/full-hud.ts"));
   const text = await need("src/util/text.ts", () => import("../src/util/text.ts"));
   const compact = needCompact ? await need("src/components/compact-hud.ts", () => import("../src/components/compact-hud.ts")) : undefined;
+  const dock = needDock ? await need("src/components/dock-hud.ts", () => import("../src/components/dock-hud.ts")) : undefined;
   return {
     createStore: store.createStore,
     DemoDriver: demo.DemoDriver,
     FullHud: full.FullHud,
     CompactHud: compact?.CompactHud,
+    DockHud: dock?.DockHud,
+    dockHeightFor: dock?.dockHeightFor,
     vw: text.vw,
   };
 }
@@ -174,7 +203,7 @@ async function runFrames(args: Args): Promise<void> {
   const realNow = Date.now;
   Date.now = () => vnow;
   try {
-    const L = await load(args.compact);
+    const L = await load(args.compact, args.dock);
     const theme = makeTheme();
     const store = L.createStore();
     let tick: (() => void) | undefined;
@@ -187,8 +216,9 @@ async function runFrames(args: Args): Promise<void> {
         tick = undefined;
       },
     });
-    const hud = new L.FullHud(store, theme, () => {}, () => {}, () => args.height);
+    const hud = args.dock ? undefined : new L.FullHud(store, theme, () => {}, () => {}, () => args.height);
     const compact = L.CompactHud ? new L.CompactHud(store, theme) : undefined;
+    const dock = L.DockHud ? new L.DockHud(store, theme, { getSize: () => args.size, getRows: () => args.rows }) : undefined;
     driver.start();
 
     const STEP = 100;
@@ -211,7 +241,13 @@ async function runFrames(args: Args): Promise<void> {
         store.tickAnimation(STEP);
       }
       const label = `t=${t}s`;
-      const lines = hud.render(args.width);
+      if (dock && L.dockHeightFor) {
+        const dl = dock.render(args.width);
+        check(`${label} dock`, dl, args.width, L.dockHeightFor(args.size, args.rows));
+        frames.push({ title: `${label} · dock ${args.size} ${args.width}x${dl.length} (rows ${args.rows}) · nodes ${store.state.nodes.length}`, lines: [...dl] });
+        continue;
+      }
+      const lines = hud!.render(args.width);
       check(`${label} full`, lines, args.width, args.height);
       frames.push({ title: `${label} · fullscreen ${args.width}x${args.height} · nodes ${store.state.nodes.length}`, lines: [...lines] });
       if (compact) {
@@ -359,7 +395,7 @@ if (typeof parsed === "string") {
   console.error(HELP);
   process.exit(2);
 }
-if (parsed.help || (!parsed.live && parsed.frames === undefined && parsed.at === undefined)) {
+if (parsed.help || (!parsed.live && !parsed.dock && parsed.frames === undefined && parsed.at === undefined)) {
   console.log(HELP);
   process.exit(parsed.help ? 0 : 2);
 }
