@@ -658,6 +658,174 @@ console.log("[chat: collector]");
   check("session_switch resets and reloads the conversation", s.state.chat?.length === 2, s.state.chat?.length);
 }
 
+console.log("[chat: every message once]");
+{
+  const mk = async (branch: unknown[] = []) => {
+    const s = createStore();
+    const h = makePi();
+    attachCollector(h.pi, s);
+    const c = makeCtx({ branch });
+    await h.emit("session_start", {}, c.ctx);
+    const play = async (events: Array<[string, unknown]>) => {
+      for (const [name, payload] of events) await h.emit(name, payload, c.ctx);
+    };
+    const rows = () => (s.state.chat ?? []).map((m) => `${m.role}:${m.text}${m.streaming ? ":streaming" : ""}${m.pending ? `:${m.pending}` : ""}`);
+    return { s, h, c, play, rows };
+  };
+  const text = (t: string) => [{ type: "text", text: t }];
+  const A = (t: string | undefined, ts: number, ...extra: unknown[]) => ({ role: "assistant", content: [...(t === undefined ? [] : text(t)), ...extra], timestamp: ts });
+  const U = (t: string, ts: number) => ({ role: "user", content: text(t), timestamp: ts });
+  const call = { type: "toolCall", name: "bash" };
+  // What real omp 18.8.9 emits for one text turn (captured in a pty run): the custom reminder, the user message,
+  // the assistant message start, two updates, the end, and one more update AFTER the end.
+  const textTurn = (q: string, a: string, ts: number): Array<[string, unknown]> => [
+    ["agent_start", {}],
+    ["message_start", { message: { role: "custom", content: "<system-reminder>x</system-reminder>" } }],
+    ["message_end", { message: { role: "custom", content: "<system-reminder>x</system-reminder>" } }],
+    ["message_start", { message: U(q, ts) }],
+    ["message_end", { message: U(q, ts) }],
+    ["turn_start", {}],
+    ["message_start", { message: A(undefined, ts + 1) }],
+    ["message_update", { message: A(a.slice(0, 2), ts + 1) }],
+    ["message_update", { message: A(a, ts + 1) }],
+    ["message_end", { message: A(a, ts + 1) }],
+    ["message_update", { message: A(a, ts + 1) }],
+    ["turn_end", {}],
+    ["agent_end", { messages: [] }],
+  ];
+  {
+    const t = await mk();
+    await t.play(textTurn("ping", "pong", 10));
+    check("a text turn (omp sends a message_update after message_end): question and answer once, in order", t.rows().join("|") === "user:ping|assistant:pong", t.rows());
+    await t.play(textTurn("ping", "pong", 20));
+    check("the same words asked again are a new turn, not a duplicate", t.rows().join("|") === "user:ping|assistant:pong|user:ping|assistant:pong", t.rows());
+  }
+  {
+    const t = await mk();
+    await t.play([
+      ["agent_start", {}],
+      ["message_start", { message: U("run it", 30) }],
+      ["message_end", { message: U("run it", 30) }],
+      ["turn_start", {}],
+      ["message_start", { message: A(undefined, 31) }],
+      ["message_update", { message: A("Checking first.", 31, call) }],
+      ["message_end", { message: A("Checking first.", 31, call) }],
+      ["message_update", { message: A("Checking first.", 31, call) }],
+      ["tool_execution_start", { toolCallId: "t1", toolName: "bash" }],
+      ["tool_execution_end", { toolCallId: "t1", toolName: "bash" }],
+      ["message_start", { message: { role: "toolResult", content: text("out") } }],
+      ["message_end", { message: { role: "toolResult", content: text("out") } }],
+      ["turn_end", {}],
+      ["turn_start", {}],
+      ["message_start", { message: A(undefined, 32) }],
+      ["message_update", { message: A("All done.", 32) }],
+      ["message_end", { message: A("All done.", 32) }],
+      ["message_update", { message: A("All done.", 32) }],
+    ]);
+    await sleep(140);
+    await t.play([
+      ["message_update", { message: A("All done.", 32) }],
+      ["turn_end", {}],
+      ["agent_end", { messages: [] }],
+    ]);
+    check("a turn with a tool call: each assistant message once, in order, nothing left streaming", t.rows().join("|") === "user:run it|assistant:Checking first.|assistant:All done.", t.rows());
+    const t2 = await mk();
+    await t2.play([
+      ["message_start", { message: A(undefined, 80) }],
+      ["message_update", { message: A("x", 80) }],
+      ["message_end", { message: A("x", 80) }],
+    ]);
+    t2.s.setCoreStatus("thinking");
+    await t2.play([["message_update", { message: A("x", 80) }]]);
+    check("a message_update after message_end does not put the core back to streaming", t2.s.state.core.status === "thinking", t2.s.state.core.status);
+  }
+  {
+    const t = await mk();
+    await t.play([
+      ["agent_start", {}],
+      ["message_start", { message: U("tools only", 40) }],
+      ["message_start", { message: A(undefined, 41) }],
+      ["message_update", { message: A(undefined, 41, call) }],
+      ["message_end", { message: A(undefined, 41, call) }],
+      ["message_update", { message: A(undefined, 41, call) }],
+      ["agent_end", { messages: [] }],
+    ]);
+    check("a message with tool calls only leaves nothing, even with a late update", t.rows().join("|") === "user:tools only", t.rows());
+  }
+  {
+    const t = await mk([
+      { type: "message", message: U("old question", 100) },
+      { type: "message", message: { ...A("old answer", 101) } },
+    ]);
+    check("history loads the earlier turn", t.rows().join("|") === "user:old question|assistant:old answer", t.rows());
+    await t.play([
+      ["message_start", { message: U("old question", 100) }],
+      ["message_start", { message: A(undefined, 101) }],
+      ["message_update", { message: A("old answer", 101) }],
+      ["message_end", { message: A("old answer", 101) }],
+      ["message_update", { message: A("old answer", 101) }],
+      ["agent_end", { messages: [] }],
+    ]);
+    check("history followed by the live events of the same messages: no copies", t.rows().join("|") === "user:old question|assistant:old answer", t.rows());
+    await t.play(textTurn("next", "fresh", 200));
+    check("a new turn after that is appended once", t.rows().join("|") === "user:old question|assistant:old answer|user:next|assistant:fresh", t.rows());
+  }
+  {
+    const t = await mk();
+    await t.play([
+      ["message_update", { message: A("joined mid-stream", 50) }],
+      ["message_end", { message: A("joined mid-stream", 50) }],
+      ["message_end", { message: A("joined mid-stream", 50) }],
+      ["message_update", { message: A("joined mid-stream", 50) }],
+    ]);
+    check("an extension that joins mid-stream shows the message once (updates without a start are ignored, a repeated end too)", t.rows().join("|") === "assistant:joined mid-stream", t.rows());
+  }
+  {
+    const t = await mk();
+    await t.play([
+      ["message_start", { message: A(undefined, 60) }],
+      ["message_update", { message: A("cut off", 60) }],
+      ["message_start", { message: A(undefined, 61) }],
+      ["message_update", { message: A("second", 61) }],
+    ]);
+    check("a message that never ended is closed when the next one starts", t.rows().join("|") === "assistant:cut off|assistant:second:streaming", t.rows());
+    await t.play([["agent_end", { messages: [] }]]);
+    check("agent_end closes the last streaming message", t.rows().join("|") === "assistant:cut off|assistant:second", t.rows());
+  }
+  {
+    // A follow-up typed in the HUD while the agent is busy stays behind the running reply, also when that reply's late update arrives.
+    const t = await mk();
+    t.s.addChat({ role: "user", text: "one", pending: "sending" });
+    await t.play([
+      ["agent_start", {}],
+      ["message_start", { message: U("one", 70) }],
+      ["message_start", { message: A(undefined, 71) }],
+      ["message_update", { message: A("answer one", 71) }],
+    ]);
+    t.s.addChat({ role: "user", text: "two", pending: "queued" });
+    t.s.addChat({ role: "user", text: "three", pending: "steer" });
+    await t.play([
+      ["message_end", { message: A("answer one", 71) }],
+      ["message_update", { message: A("answer one", 71) }],
+    ]);
+    check("queued messages stay behind the running reply (a late update does not open an entry behind them)", t.rows().join("|") === "user:one|assistant:answer one|user:two:queued|user:three:steer", t.rows());
+    await t.play([
+      ["message_start", { message: U("two", 72) }],
+      ["message_start", { message: A(undefined, 73) }],
+      ["message_update", { message: A("answer two", 73) }],
+      ["message_end", { message: A("answer two", 73) }],
+      ["message_update", { message: A("answer two", 73) }],
+      ["message_start", { message: U("three", 74) }],
+      ["message_start", { message: A(undefined, 75) }],
+      ["message_update", { message: A("answer three", 75) }],
+      ["message_end", { message: A("answer three", 75) }],
+      ["message_update", { message: A("answer three", 75) }],
+      ["agent_end", { messages: [] }],
+    ]);
+    check("queued and steered messages appear in the order omp runs them, each once", t.rows().join("|") === "user:one|assistant:answer one|user:two|assistant:answer two|user:three|assistant:answer three", t.rows());
+  }
+}
+
 console.log("[chat: input line]");
 const { InputLine } = await import("../src/components/input-line.ts");
 const { renderChat } = await import("../src/render/chat.ts");
@@ -891,6 +1059,39 @@ console.log("[chat: index.ts bridge]");
   M.custom.done!(undefined);
   await dp;
   demo.dispose?.();
+}
+
+console.log("[chat: closing and reopening the full screen]");
+{
+  const before = idx.sent.length;
+  const open = (): { full: { render(w: number): readonly string[]; handleInput(d: string): void; dispose?(): void }; done: Promise<void> } => {
+    const done = cmd.handler("full", M.ctx) as Promise<void>;
+    const full = M.custom.factory!(M.tui, M.theme, {}, (r: unknown) => M.custom.done!(r)) as { render(w: number): readonly string[]; handleInput(d: string): void; dispose?(): void };
+    return { full, done };
+  };
+  const shown = (full: { render(w: number): readonly string[] }): string => full.render(140).map(plain).join("\n");
+  const count = (hay: string, needle: string): number => hay.split(needle).length - 1;
+  const first = open();
+  M.idle.value = true;
+  for (const ch of "reopen probe") first.full.handleInput(ch);
+  first.full.handleInput("\r");
+  await idx.emit("agent_start", {}, M.ctx);
+  await idx.emit("message_start", { message: { role: "user", content: "reopen probe", timestamp: 9000 } }, M.ctx);
+  await idx.emit("message_start", { message: { role: "assistant", content: [], timestamp: 9001 } }, M.ctx);
+  await idx.emit("message_update", { message: { role: "assistant", content: [{ type: "text", text: "reopen answer" }] } }, M.ctx);
+  await idx.emit("message_end", { message: { role: "assistant", content: [{ type: "text", text: "reopen answer" }], timestamp: 9001 } }, M.ctx);
+  await idx.emit("message_update", { message: { role: "assistant", content: [{ type: "text", text: "reopen answer" }] } }, M.ctx);
+  await idx.emit("agent_end", { messages: [] }, M.ctx);
+  check("full screen: the question and the answer are shown once each", count(shown(first.full), "reopen probe") === 1 && count(shown(first.full), "reopen answer") === 1, shown(first.full));
+  first.full.handleInput("\x1b");
+  await first.done;
+  first.full.dispose?.();
+  const second = open();
+  check("reopening the full screen shows every message once (the conversation is not copied or lost)", count(shown(second.full), "reopen probe") === 1 && count(shown(second.full), "reopen answer") === 1, shown(second.full));
+  second.full.handleInput("\x1b");
+  await second.done;
+  second.full.dispose?.();
+  check("reopening sent nothing to omp", idx.sent.length === before + 1, idx.sent.slice(before));
 }
 
 await idx.emit("session_shutdown", {}, M.ctx);
