@@ -20,6 +20,12 @@ declare module "@oh-my-pi/pi-tui" {
     requestRender(force?: boolean): void;
     /** Terminal; the field is undocumented, callers fall back to 30 when it is missing. */
     terminal?: { rows?: number; columns?: number };
+    /** Undocumented: the focused component (the editor when no overlay is visible). */
+    getFocused?(): unknown;
+    /** Undocumented: true while an overlay is shown (a hidden one does not count). */
+    hasOverlay?(): boolean;
+    /** Undocumented: child components of the root container. */
+    children?: readonly unknown[];
   }
 }
 
@@ -72,9 +78,18 @@ declare module "@oh-my-pi/pi-coding-agent" {
     mouseTracking?: boolean;
   }
 
+  /** Mounted overlay. `setHidden` keeps it on the stack but takes it off the screen and returns the focus to the component below. */
+  export interface OverlayHandle {
+    hide(): void;
+    setHidden(hidden: boolean): void;
+    isHidden(): boolean;
+  }
+
   export interface CustomOptions {
     overlay?: boolean;
     overlayOptions?: OverlayOptions;
+    /** Receives the mounted overlay handle. */
+    onHandle?(handle: OverlayHandle): void;
   }
 
   export type ComponentFactory<T extends Component = Component> = (tui: TUI, theme: Theme) => T;
@@ -92,6 +107,13 @@ declare module "@oh-my-pi/pi-coding-agent" {
     /** Footer status text keyed per extension; `undefined` removes the entry. omp strips ANSI and truncates it. */
     setStatus(key: string, text: string | undefined): void;
     notify(message: string, type?: "info" | "warning" | "error"): void;
+    /** Replaces the text of omp's editor (interactive mode). */
+    setEditorText(text: string): void;
+    getEditorText(): string;
+    /** Wraps omp's autocomplete provider; called again with the current base every time the slash commands refresh. There is no way to remove it. */
+    addAutocompleteProvider(factory: (base: unknown) => unknown): void;
+    /** Listens to raw terminal input before the focused component; `consume` swallows the key. Returns the unsubscribe function. */
+    onTerminalInput(listener: (data: string) => { consume?: boolean; data?: string } | undefined): () => void;
   }
 
   export interface ExtensionContext {
@@ -107,6 +129,8 @@ declare module "@oh-my-pi/pi-coding-agent" {
     setInterval(fn: (...args: unknown[]) => void, ms: number, ...args: unknown[]): unknown;
     setTimeout(fn: (...args: unknown[]) => void, ms: number, ...args: unknown[]): unknown;
     clearTimer(timer: unknown): void;
+    /** Reloads extensions, skills and rules from disk (command handlers only). */
+    reload?(): Promise<void>;
   }
 
   export type ExtensionCommandContext = ExtensionContext;
@@ -182,3 +206,10 @@ declare const Bun: {
   }): void;
 };
 declare function setTimeout(fn: () => void, ms?: number): unknown;
+declare class AbortSignal {
+  readonly aborted: boolean;
+}
+declare class AbortController {
+  readonly signal: AbortSignal;
+  abort(): void;
+}

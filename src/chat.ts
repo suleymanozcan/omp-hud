@@ -55,6 +55,36 @@ export interface ChatBridge {
   send(text: string, mode: SendMode): void;
   /** The arguments of a `/hud ...` line (everything after `/hud`), run locally; its output goes into the conversation panel. */
   command(args: string): void;
+  /**
+   * A line that omp itself must run: a `/command`, a `!shell` or a `$ python` line. It goes through omp's editor, never through
+   * `sendUserMessage` (which does not expand commands). `refused`: nothing was run (unknown command, no editor), the owner keeps the text.
+   */
+  runLine(text: string): Promise<LineOutcome>;
+  /** Completion of the prompt text at `cursor` (a UTF-16 offset), from omp's own autocomplete provider; null when there is nothing to offer. */
+  suggest(text: string, cursor: number, signal?: AbortSignal): Promise<Suggestions | null>;
+  /** The text and cursor after applying one suggestion, or undefined when omp could not apply it. */
+  apply(text: string, cursor: number, item: Suggestion, prefix: string): Completion | undefined;
+}
+
+export type LineOutcome = "ran" | "refused";
+
+/** One completion entry of omp's autocomplete provider. `raw` is the original object (omp wants it back in `applyCompletion`). */
+export interface Suggestion {
+  value: string;
+  label: string;
+  description?: string;
+  argumentHint?: string;
+  raw: unknown;
+}
+
+export interface Suggestions {
+  items: Suggestion[];
+  prefix: string;
+}
+
+export interface Completion {
+  text: string;
+  cursor: number; // UTF-16 offset
 }
 
 const ANSI_CSI = /\x1b\[[0-?]*[ -/]*[@-~]/g;
