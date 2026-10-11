@@ -584,7 +584,7 @@ const plain = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
   const rev = s.state.chatRev ?? 0;
   s.updateChat(id, { text: "hello red ok!" });
   check("chat: a text update bumps chatRev but not the store version", s.version === v && (s.state.chatRev ?? 0) === rev + 1, [s.version, v]);
-  s.updateChat(id, { pending: "queued" });
+  s.updateChat(id, { pending: "after" });
   check("chat: a pending change bumps the version", s.version === v + 1);
   for (let i = 0; i < 45; i++) s.addChat({ role: "assistant", text: `m${i}` });
   check("chat: ring buffer keeps 40 messages", s.state.chat?.length === 40 && s.state.chat[39]?.text === "m44", s.state.chat?.length);
@@ -592,13 +592,13 @@ const plain = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
   const bigMsg = s.state.chat?.find((m) => m.id === big);
   check("chat: a very long message is clipped (head and tail kept)", (bigMsg?.text.length ?? 0) <= 12 * 1024 && bigMsg?.text.includes("\n…\n") === true, bigMsg?.text.length);
   const s2 = createStore();
-  s2.addChat({ role: "user", text: "queued one", pending: "queued" });
+  s2.addChat({ role: "user", text: "queued one", pending: "after" });
   s2.addChat({ role: "assistant", text: "reply", streaming: true });
   check("chat: resolvePending matches by text (whitespace-insensitive)", s2.resolvePendingChat("  queued   one "));
   check("chat: a resolved message moves behind the running reply and loses its tag", s2.state.chat?.at(-1)?.text === "queued one" && s2.state.chat.at(-1)?.pending === undefined, s2.state.chat?.map((m) => m.text));
   check("chat: resolvePending without a match is false", !s2.resolvePendingChat("nope"));
-  s2.addChat({ role: "user", text: "stale", pending: "queued", t: Date.now() - 10_000 });
-  s2.addChat({ role: "user", text: "fresh", pending: "queued" });
+  s2.addChat({ role: "user", text: "stale", pending: "after", t: Date.now() - 10_000 });
+  s2.addChat({ role: "user", text: "fresh", pending: "after" });
   s2.expirePendingChat(3000);
   check("chat: expirePending drops only old pending messages", s2.state.chat?.some((m) => m.text === "stale") === false && s2.state.chat.some((m) => m.text === "fresh"));
   s2.reset();
@@ -651,7 +651,7 @@ console.log("[chat: collector]");
   const subCtx = makeCtx({ agent: { kind: "sub", id: "x", name: "task", depth: 1 } }).ctx;
   await h.emit("message_start", { message: { role: "user", content: "subagent prompt" } }, subCtx);
   check("subagent messages are not shown", s.state.chat?.length === n1);
-  s.addChat({ role: "user", text: "never reported", pending: "queued", t: Date.now() - 10_000 });
+  s.addChat({ role: "user", text: "never reported", pending: "after", t: Date.now() - 10_000 });
   await h.emit("agent_end", { messages: [] }, c.ctx);
   check("agent_end drops stale pending messages", s.state.chat?.some((m) => m.text === "never reported") === false);
   await h.emit("session_switch", {}, c.ctx);
@@ -802,13 +802,13 @@ console.log("[chat: every message once]");
       ["message_start", { message: A(undefined, 71) }],
       ["message_update", { message: A("answer one", 71) }],
     ]);
-    t.s.addChat({ role: "user", text: "two", pending: "queued" });
+    t.s.addChat({ role: "user", text: "two", pending: "after" });
     t.s.addChat({ role: "user", text: "three", pending: "steer" });
     await t.play([
       ["message_end", { message: A("answer one", 71) }],
       ["message_update", { message: A("answer one", 71) }],
     ]);
-    check("queued messages stay behind the running reply (a late update does not open an entry behind them)", t.rows().join("|") === "user:one|assistant:answer one|user:two:queued|user:three:steer", t.rows());
+    check("queued messages stay behind the running reply (a late update does not open an entry behind them)", t.rows().join("|") === "user:one|assistant:answer one|user:two:after|user:three:steer", t.rows());
     await t.play([
       ["message_start", { message: U("two", 72) }],
       ["message_start", { message: A(undefined, 73) }],
@@ -867,7 +867,7 @@ const noTheme = { fg: (_c: string, t: string) => t, bold: (t: string) => t, true
   l.handleInput("\r");
   typeIn(l, "two");
   const sub = l.handleInput("\x1b\r");
-  check("input: Enter submits, Alt+Enter submits as steer", sub.kind === "submit" && sub.text === "two" && sub.steer === true && l.isEmpty, sub);
+  check("input: Enter submits as steer, Alt+Enter submits as after-yield", sub.kind === "submit" && sub.text === "two" && sub.mode === "after" && l.isEmpty, sub);
   typeIn(l, "draft");
   l.handleInput("\x1b[A");
   check("input: Up recalls the newest history entry", l.text === "two");
@@ -996,15 +996,23 @@ console.log("[chat: panel]");
   sv.follow = true;
   const bottomRows = renderChat(scrollStore.state, 40, 12, noTheme, sv).map(plain);
   check("chat panel: a following view stays at the newest line after a width change", sv.offset === 0 && idAt(bottomRows, 11) === 23, idAt(bottomRows, 11));
+  const pend = createStore();
+  pend.addChat({ role: "user", text: "alpha", pending: "steer" });
+  pend.addChat({ role: "user", text: "beta", pending: "after" });
+  const pendRows = (): string => renderChat(pend.state, 60, 8, noTheme).map(plain).join("\n");
+  check("chat panel (en): steer and after-yield tags", pendRows().includes("alpha · steering (next step)") && pendRows().includes("beta · after yield"), pendRows());
+  setLang("tr");
+  check("chat panel (tr): the same tags in Turkish", pendRows().includes("alpha · yönlendirme (sonraki adımda)") && pendRows().includes("beta · bitince"), pendRows());
+  setLang("en");
 }
 
 console.log("[chat: full screen component]");
 {
   const s = createStore();
-  const sent: Array<[string, boolean]> = [];
+  const sent: Array<[string, string]> = [];
   const cmds: string[] = [];
   let closed = 0;
-  const hud = new FullHud(s, noTheme, () => {}, () => closed++, () => 30, { send: (t, steer) => void sent.push([t, steer]), command: (a) => void cmds.push(a) });
+  const hud = new FullHud(s, noTheme, () => {}, () => closed++, () => 30, { send: (t, mode) => void sent.push([t, mode]), command: (a) => void cmds.push(a) });
   const type = (str: string) => {
     for (const ch of str) hud.handleInput(ch);
   };
@@ -1018,12 +1026,13 @@ console.log("[chat: full screen component]");
     h2.dispose?.();
   }
   check("full screen: a too small terminal says so", plain(new FullHud(s, noTheme, () => {}, () => {}, () => 10).render(40).join("\n")).includes("too small"));
+  check("the hint row says what Enter and Alt+Enter do", screen().includes("Enter send · Alt+Enter after yield"), screen().split("\n").at(-1));
   type("hello omp");
   hud.handleInput("\r");
-  check("Enter sends plain text through the bridge", sent.length === 1 && sent[0]![0] === "hello omp" && sent[0]![1] === false, sent);
+  check("Enter sends plain text through the bridge as a steer", sent.length === 1 && sent[0]![0] === "hello omp" && sent[0]![1] === "steer", sent);
   type("steer me");
   hud.handleInput("\x1b\r");
-  check("Alt+Enter sends it as a steer", sent.length === 2 && sent[1]![1] === true, sent);
+  check("Alt+Enter sends it as after-yield", sent.length === 2 && sent[1]![1] === "after", sent);
   type("/hud size large");
   hud.handleInput("\r");
   check("/hud ... runs locally (arguments only)", cmds.join() === "size large" && sent.length === 2, [cmds, sent.length]);
@@ -1139,16 +1148,23 @@ console.log("[chat: index.ts bridge]");
   check("the sent text is in the panel at once", screen().includes("you ▸ first message"));
   await idx.emit("message_start", { message: { role: "user", content: [{ type: "text", text: "first message" }] } }, M.ctx);
   check("omp reporting it back does not duplicate it", screen().split("first message").length === 2);
+  type("idle after yield");
+  full.handleInput("\x1b\r");
+  check("idle: Alt+Enter is a normal prompt too (no deliverAs: omp would queue it instead of starting a turn)", idx.sent.length === before + 2 && idx.sent[before + 1]!.text === "idle after yield" && idx.sent[before + 1]!.deliverAs === undefined, idx.sent.slice(before));
+  check("idle: no pending tag and no badge", !screen().includes("idle after yield ·") && !screen().includes("pending"));
+  await idx.emit("message_start", { message: { role: "user", content: [{ type: "text", text: "idle after yield" }] } }, M.ctx);
   await idx.emit("agent_start", {}, M.ctx);
   M.idle.value = false;
+  const b0 = idx.sent.length;
   type("second message");
   full.handleInput("\r");
   type("third message");
   full.handleInput("\x1b\r");
-  check("busy: Enter queues as followUp, Alt+Enter steers", idx.sent[before + 1]?.deliverAs === "followUp" && idx.sent[before + 2]?.deliverAs === "steer", idx.sent.slice(before));
-  check("pending messages carry their tag", screen().includes("second message · queued") && screen().includes("third message · steering"));
+  check("busy: Enter has no deliverAs (omp steers while streaming, like the editor's Enter), Alt+Enter is followUp", idx.sent.length === b0 + 2 && idx.sent[b0]!.text === "second message" && idx.sent[b0]!.deliverAs === undefined && idx.sent[b0 + 1]!.text === "third message" && idx.sent[b0 + 1]!.deliverAs === "followUp", idx.sent.slice(b0));
+  check("pending messages carry a clear tag each", screen().includes("second message · steering (next step)") && screen().includes("third message · after yield"));
+  check("the panel title counts the pending messages and their modes", screen().includes("CHAT · 2 pending (1 steering, 1 after yield)"), screen().split("\n").find((l) => l.includes("CHAT")));
   await idx.emit("message_start", { message: { role: "user", content: [{ type: "text", text: "second message" }] } }, M.ctx);
-  check("when omp starts a queued message the tag disappears", !screen().includes("second message · queued") && screen().includes("third message · steering"));
+  check("when omp starts a steered message its tag disappears; the other keeps its tag and the badge shrinks", !screen().includes("second message ·") && screen().includes("third message · after yield") && screen().includes("CHAT · 1 pending (after yield)"));
   await idx.emit("agent_end", { messages: [] }, M.ctx);
   const notes = M.notes.length;
   const opened = M.custom.opened;
@@ -1162,6 +1178,7 @@ console.log("[chat: index.ts bridge]");
   type("/hud lang tr");
   full.handleInput("\r");
   check("a /hud command that changes state runs for real (language)", screen().includes("Dil: tr (elle)"), screen().split("\n").slice(-6));
+  check("tr: the badge is in Turkish", screen().includes("SOHBET · 1 bekliyor (bitince)"), screen().split("\n").find((l) => l.includes("SOHBET")));
   type("/hud lang en");
   full.handleInput("\r");
   check("/hud lang en restores the language", screen().includes("Language: en (manual)"));

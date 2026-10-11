@@ -2,7 +2,7 @@
 // so you can write to the agent and read the answers without leaving it.
 import { matchesKey } from "@oh-my-pi/pi-tui";
 import type { Component } from "@oh-my-pi/pi-tui";
-import { newChatView, type ChatBridge } from "../chat.ts";
+import { newChatView, type ChatBridge, type SendMode } from "../chat.ts";
 import { ct } from "../chat-i18n.ts";
 import { composeHud, type ComposeOptions } from "../render/layout.ts";
 import { getLang } from "../i18n.ts";
@@ -144,7 +144,7 @@ export class FullHud implements Component {
       else {
         const res = this.input.handleInput(data);
         if (res.kind === "none") return;
-        if (res.kind === "submit") this.submit(res.text, res.steer);
+        if (res.kind === "submit") this.submit(res.text, res.mode);
       }
       this.invalidate();
       this.requestRender();
@@ -169,8 +169,8 @@ export class FullHud implements Component {
     }
   }
 
-  /** Enter / Alt+Enter: an empty line toggles the node details; `/hud ...` runs here; other `/` lines are refused; the rest goes to the agent. */
-  private submit(text: string, steer: boolean): void {
+  /** Enter (`steer`) / Alt+Enter (`after`): an empty line toggles the node details; `/hud ...` runs here; other `/` lines are refused; the rest goes to the agent. */
+  private submit(text: string, mode: SendMode): void {
     if (text === "") {
       if (this.selectedId !== undefined) this.detail = !this.detail;
       return;
@@ -185,7 +185,7 @@ export class FullHud implements Component {
       return;
     }
     this.chatView.follow = true;
-    this.bridge?.send(text, steer);
+    this.bridge?.send(text, mode);
   }
 
   private scroll(lines: number): void {

@@ -9,19 +9,22 @@ const tr = {
   "chat.sys": "hud ▸",
   "chat.empty": "henüz mesaj yok · aşağıya yazın",
   "chat.newBelow": "↓ yeni",
-  "chat.queued": "sırada",
-  "chat.steer": "yönlendirildi",
+  "chat.after": "bitince",
+  "chat.steer": "yönlendirme (sonraki adımda)",
+  "chat.pending": "{n} bekliyor ({what})",
+  "chat.pendingSteer": "yönlendirme",
+  "chat.pendingAfter": "bitince",
   "chat.placeholder": "mesaj yazın…",
-  "chat.hint.base": "Esc kapat · Enter gönder · Alt+Enter yönlendir · Tab düğüm · PgUp/PgDn kaydır",
-  "chat.hint.typing": "Esc temizle · Enter gönder · Alt+Enter yönlendir · Tab düğüm · PgUp/PgDn kaydır",
-  "chat.hint.selected": "Esc kapat · boş Enter ayrıntı · Tab sonraki düğüm · Alt+Enter yönlendir · PgUp/PgDn kaydır",
+  "chat.hint.base": "Esc kapat · Enter gönder · Alt+Enter bitince · Tab düğüm · PgUp/PgDn kaydır",
+  "chat.hint.typing": "Esc temizle · Enter gönder · Alt+Enter bitince · Tab düğüm · PgUp/PgDn kaydır",
+  "chat.hint.selected": "Esc kapat · boş Enter ayrıntı · Tab sonraki düğüm · Alt+Enter bitince · PgUp/PgDn kaydır",
   "chat.hint.detail": "Esc ayrıntıyı kapat · Tab düğüm · Enter ayrıntı",
   "chat.noSlash": "Bu komut HUD içinde desteklenmiyor: yalnız /hud ... çalışır. Esc ile çıkıp editörde yazın.",
   "chat.alreadyFull": "Zaten tam ekrandasınız.",
   "chat.demoReply": "Bu bir demo: mesajınız omp'ye gönderilmedi.",
   "chat.sendFailed": "Mesaj gönderilemedi: {err}",
   "chat.help":
-    "Tam ekranda yazabilirsiniz. Enter gönderir; ajan meşgulken mesaj sıraya girer, Alt+Enter ise çalışan turu yönlendirir. " +
+    "Tam ekranda yazabilirsiniz. Enter gönderir, editördeki Enter gibi: ajan meşgulken mesaj bir sonraki adımda ona iletilir (omp'de 'Steering'). Alt+Enter mesajı ajan bitirince iletir (omp'de 'After yield'). " +
     "Esc: önce ayrıntıyı, sonra girdiyi temizler, sonra kapatır. Tab/Shift+Tab düğüm seçer, boş Enter ayrıntıyı açar. " +
     "PgUp/PgDn ya da Ctrl+↑/↓ sohbeti kaydırır, End (Ctrl+End) en alta döner. Girdi satırında ←/→, Home/End, Ctrl+A/E, Ctrl+U, Ctrl+W, ↑/↓ (geçmiş). " +
     "Yalnız /hud ... komutları HUD içinde çalışır.",
@@ -41,19 +44,22 @@ const en: Record<keyof typeof tr, string> = {
   "chat.sys": "hud ▸",
   "chat.empty": "no messages yet · type below",
   "chat.newBelow": "↓ new",
-  "chat.queued": "queued",
-  "chat.steer": "steering",
+  "chat.after": "after yield",
+  "chat.steer": "steering (next step)",
+  "chat.pending": "{n} pending ({what})",
+  "chat.pendingSteer": "steering",
+  "chat.pendingAfter": "after yield",
   "chat.placeholder": "type a message…",
-  "chat.hint.base": "Esc close · Enter send · Alt+Enter steer · Tab node · PgUp/PgDn scroll",
-  "chat.hint.typing": "Esc clear · Enter send · Alt+Enter steer · Tab node · PgUp/PgDn scroll",
-  "chat.hint.selected": "Esc close · empty Enter details · Tab next node · Alt+Enter steer · PgUp/PgDn scroll",
+  "chat.hint.base": "Esc close · Enter send · Alt+Enter after yield · Tab node · PgUp/PgDn scroll",
+  "chat.hint.typing": "Esc clear · Enter send · Alt+Enter after yield · Tab node · PgUp/PgDn scroll",
+  "chat.hint.selected": "Esc close · empty Enter details · Tab next node · Alt+Enter after yield · PgUp/PgDn scroll",
   "chat.hint.detail": "Esc close details · Tab node · Enter details",
   "chat.noSlash": "This command is not supported inside the HUD: only /hud ... works. Press Esc and type it in the editor.",
   "chat.alreadyFull": "You are already in full screen.",
   "chat.demoReply": "This is a demo: your message was not sent to omp.",
   "chat.sendFailed": "Could not send the message: {err}",
   "chat.help":
-    "You can type in full screen. Enter sends; while the agent is busy the message is queued, Alt+Enter steers the running turn. " +
+    "You can type in full screen. Enter sends, like the editor's Enter: while the agent is busy the message reaches it at its next step (omp's 'Steering'). Alt+Enter delivers it once the agent yields (omp's 'After yield'). " +
     "Esc first closes the details, then clears the input, then closes the HUD. Tab/Shift+Tab selects a node, an empty Enter opens its details. " +
     "PgUp/PgDn or Ctrl+↑/↓ scroll the chat, End (Ctrl+End) jumps back to the bottom. In the input: ←/→, Home/End, Ctrl+A/E, Ctrl+U, Ctrl+W, ↑/↓ (history). " +
     "Only /hud ... commands run inside the HUD.",

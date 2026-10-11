@@ -173,6 +173,21 @@ function bodyLines(text: string, w: number, color: Color, theme: HudTheme): stri
   return out;
 }
 
+/** "2 pending (1 steering, 1 after yield)": the HUD's own messages that omp has not started yet; empty when there are none. */
+export function pendingBadge(chat: readonly ChatMessage[] | undefined): string {
+  let steer = 0;
+  let after = 0;
+  for (const m of chat ?? []) {
+    if (m.pending === "steer") steer++;
+    else if (m.pending === "after") after++;
+  }
+  if (steer + after === 0) return "";
+  const parts: string[] = [];
+  if (steer > 0) parts.push(after > 0 ? `${steer} ${ct("chat.pendingSteer")}` : ct("chat.pendingSteer"));
+  if (after > 0) parts.push(steer > 0 ? `${after} ${ct("chat.pendingAfter")}` : ct("chat.pendingAfter"));
+  return ct("chat.pending", { n: steer + after, what: parts.join(", ") });
+}
+
 function roleStyle(role: ChatMessage["role"]): { label: string; color: Color; labelColor: Color } {
   if (role === "user") return { label: ct("chat.you"), color: "accent", labelColor: "accent" };
   if (role === "assistant") return { label: ct("chat.omp"), color: "text", labelColor: "success" };
@@ -185,8 +200,8 @@ function messageLines(msg: ChatMessage, width: number, theme: HudTheme): string[
   const textW = labelled ? width - LABEL_W : width;
   const { label, color, labelColor } = roleStyle(msg.role);
   const body = msg.text === "" ? [] : bodyLines(msg.text, textW, color, theme);
-  if (msg.pending === "queued" || msg.pending === "steer") {
-    const tag = theme.fg("warning", `· ${ct(msg.pending === "queued" ? "chat.queued" : "chat.steer")}`);
+  if (msg.pending === "after" || msg.pending === "steer") {
+    const tag = theme.fg("warning", `· ${ct(msg.pending === "after" ? "chat.after" : "chat.steer")}`);
     const last = body.length - 1;
     if (last >= 0 && vw(body[last]!) + 1 + vw(tag) <= textW) body[last] = `${body[last]} ${tag}`;
     else body.push(tag);

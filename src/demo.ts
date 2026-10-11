@@ -288,8 +288,8 @@ export class DemoDriver {
     reply("demo.chat.a1", 1500, 8500);
     say("demo.chat.u2", 11000);
     reply("demo.chat.a2", 12000, 16500);
-    // A message sent while the agent is busy waits as `queued` until omp reports it.
-    at(20000, () => store.addChat({ id: `d${lap}-q`, role: "user", text: ct("demo.chat.u3"), pending: "queued" }));
+    // A message sent while the agent is busy waits as `after` until omp reports it.
+    at(20000, () => store.addChat({ id: `d${lap}-q`, role: "user", text: ct("demo.chat.u3"), pending: "after" }));
     at(25000, () => store.updateChat(`d${lap}-q`, { pending: null }));
     reply("demo.chat.a3", 26000, 29000);
   }

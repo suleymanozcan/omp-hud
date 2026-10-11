@@ -6,7 +6,7 @@ import { padEnd, trunc, vw } from "../util/text.ts";
 import { t } from "../i18n.ts";
 import { coreColor, coreLabel, fmtClock, fmtCost, fmtDur, fmtNum, nodeStatusColor, nodeStatusLabel, spinnerFor } from "./fmt.ts";
 import { renderFeed } from "./feed.ts";
-import { renderChat } from "./chat.ts";
+import { pendingBadge, renderChat } from "./chat.ts";
 import { renderTasks } from "./tasks.ts";
 import { renderTokens } from "./tokens.ts";
 
@@ -217,8 +217,10 @@ export function composeHud(state: HudState, width: number, height: number, theme
   const chatPanel = (w: number, h: number): string[] => {
     const lines = renderChat(state, Math.max(0, w - 2), Math.max(0, h - 2), theme, opts.chatView);
     const behind = opts.chatView !== undefined && !opts.chatView.follow && opts.chatView.offset > 0;
+    const badge = pendingBadge(state.chat);
     const title =
       theme.bold(theme.fg("accent", ct("chat.title"))) +
+      (badge !== "" ? theme.fg("warning", ` · ${badge}`) : "") +
       (behind ? theme.fg("warning", ` ${ct("chat.newBelow")}`) : "");
     return frame(title, lines, w, h, theme);
   };

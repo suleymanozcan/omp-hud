@@ -1,6 +1,7 @@
 // Single-line prompt of the full-screen HUD: horizontal scroll, visible block cursor, line editing, bracketed paste,
 // session history. It knows nothing about omp; the owner decides what a submit does.
 import { matchesKey } from "@oh-my-pi/pi-tui";
+import type { SendMode } from "../chat.ts";
 import type { HudTheme } from "../types.ts";
 import { trunc, vw } from "../util/text.ts";
 
@@ -12,7 +13,7 @@ const PROMPT = "❯ ";
 const PROMPT_W = 2;
 
 /** `none`: the key is not an input key (the owner may use it); `edit`: handled, redraw; `submit`: Enter / Alt+Enter. */
-export type InputResult = { kind: "none" } | { kind: "edit" } | { kind: "submit"; text: string; steer: boolean };
+export type InputResult = { kind: "none" } | { kind: "edit" } | { kind: "submit"; text: string; mode: SendMode };
 
 const NONE: InputResult = { kind: "none" };
 const EDIT: InputResult = { kind: "edit" };
@@ -96,8 +97,8 @@ export class InputLine {
 
   handleInput(data: string): InputResult {
     if (this.paste !== undefined || data.includes(PASTE_START)) return this.handlePaste(data);
-    if (matchesKey(data, "alt+enter") || data === "\x1b\r" || data === "\x1b[13;3u") return this.submit(true);
-    if (matchesKey(data, "enter")) return this.submit(false);
+    if (matchesKey(data, "alt+enter") || data === "\x1b\r" || data === "\x1b[13;3u") return this.submit("after");
+    if (matchesKey(data, "enter")) return this.submit("steer");
     if (matchesKey(data, "backspace")) return this.edit(this.cursor > 0, () => this.splice(this.cursor - 1, 1, []));
     if (matchesKey(data, "delete")) return this.edit(this.cursor < this.chars.length, () => this.splice(this.cursor, 1, []));
     if (matchesKey(data, "left")) return this.move(this.cursor - 1);
@@ -218,14 +219,14 @@ export class InputLine {
     return EDIT;
   }
 
-  private submit(steer: boolean): InputResult {
+  private submit(mode: SendMode): InputResult {
     const text = this.text.trim();
     if (text !== "") {
       if (this.history[this.history.length - 1] !== text) this.history.push(text);
       if (this.history.length > HISTORY_MAX) this.history.shift();
     }
     this.clear();
-    return { kind: "submit", text, steer };
+    return { kind: "submit", text, mode };
   }
 
   /** Bracketed paste: the text between the markers is one edit, even when it arrives in several chunks. */

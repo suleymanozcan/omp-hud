@@ -7,8 +7,11 @@ export const CHAT_HISTORY_LOAD = 40; // messages read from the session branch at
 
 export type ChatRole = "user" | "assistant" | "system";
 
-/** `queued`: a follow-up behind the running turn; `steer`: delivered at the next step; `sending`: the agent was idle, the turn is starting. */
-export type ChatPending = "queued" | "steer" | "sending";
+/** `steer`: delivered at the agent's next step (omp "Steering"); `after`: waits until the agent yields (omp "After yield"); `sending`: the agent was idle, the turn is starting. */
+export type ChatPending = "steer" | "after" | "sending";
+
+/** How the prompt sends a line: `steer` (Enter) is what the omp editor's Enter does (a prompt when idle, a steer while busy); `after` (Alt+Enter) waits for the agent to yield. */
+export type SendMode = "steer" | "after";
 
 export interface ChatMessage {
   id: string;
@@ -48,8 +51,8 @@ export function newChatView(): ChatView {
 
 /** What the full-screen HUD can do with a line typed into its prompt; implemented by the extension entry (or the demo). */
 export interface ChatBridge {
-  /** Plain text for the agent; `steer` (Alt+Enter) delivers it into the running turn instead of queuing it. */
-  send(text: string, steer: boolean): void;
+  /** Plain text for the agent; `mode` only matters while the agent is busy (idle: a normal prompt). */
+  send(text: string, mode: SendMode): void;
   /** The arguments of a `/hud ...` line (everything after `/hud`), run locally; its output goes into the conversation panel. */
   command(args: string): void;
 }

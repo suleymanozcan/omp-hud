@@ -798,18 +798,19 @@ export default function hudExtension(pi: ExtensionAPI): void {
       target.addChat({ role: "system", text });
     };
     return {
-      send(text, steer) {
+      send(text, mode) {
         if (demo) {
           target.addChat({ role: "user", text });
           say(ct("chat.demoReply"));
           return;
         }
         const idle = typeof ctx.isIdle === "function" ? ctx.isIdle() : true;
-        const id = target.addChat({ role: "user", text, pending: idle ? "sending" : steer ? "steer" : "queued" });
+        const id = target.addChat({ role: "user", text, pending: idle ? "sending" : mode });
         try {
-          // Idle: start a turn. Busy: queue behind the running turn (followUp) or steer it (Alt+Enter).
-          if (idle) pi.sendUserMessage(text);
-          else pi.sendUserMessage(text, { deliverAs: steer ? "steer" : "followUp" });
+          // Idle: a normal prompt. Busy, Enter: no `deliverAs`, which omp treats as a steer while streaming, exactly like
+          // the editor's Enter (and it still starts a turn if the agent finished since the check). Busy, Alt+Enter: `followUp`.
+          if (idle || mode === "steer") pi.sendUserMessage(text);
+          else pi.sendUserMessage(text, { deliverAs: "followUp" });
         } catch (e) {
           target.removeChat(id);
           say(ct("chat.sendFailed", { err: errText(e) }));
