@@ -1,7 +1,7 @@
 // Full-screen HUD layout: header, panels (orbit | conversation + thin feed + task summary), token strip, prompt box.
 import type { HudNode, HudState, HudTheme } from "../types.ts";
 import type { ChatView } from "../chat.ts";
-import { ct } from "../chat-i18n.ts";
+import { ct, type ChatKey } from "../chat-i18n.ts";
 import { padEnd, trunc, vw } from "../util/text.ts";
 import { t } from "../i18n.ts";
 import { coreColor, coreLabel, fmtClock, fmtCost, fmtDur, fmtNum, nodeStatusColor, nodeStatusLabel, spinnerFor } from "./fmt.ts";
@@ -36,8 +36,10 @@ export interface ComposeOptions {
   inputRow?: string;
   /** False while the prompt holds text (the hint changes). */
   inputEmpty?: boolean;
-  /** A transient message (command output, warning) shown in place of the key hint. */
-  flash?: { text: string; level: "info" | "warning" | "error" };
+  /** Rows of the command palette (already rendered, exactly `width` cells each); drawn over the bottom of the panels. */
+  palette?: readonly string[];
+  /** The prompt holds a line that omp will run (`/command`, `!shell`, `$ python`): the hint says so. */
+  command?: boolean;
 }
 
 /** Thin-line frame; `title` is embedded in the top edge. Exactly `w` x `h` cells. */
@@ -152,20 +154,15 @@ function headerRow(state: HudState, width: number, theme: HudTheme): string {
   return left + " ".repeat(width - vw(left) - vw(right)) + right;
 }
 
-/** Prompt box: a thin rule, the input row (rendered by the owner) and the hint row (or a transient message). */
+/** Prompt box: a thin rule, the input row (rendered by the owner) and the hint row. */
 function promptBox(opts: ComposeOptions, width: number, theme: HudTheme): string[] {
-  let hint: string;
-  if (opts.flash) hint = theme.fg(opts.flash.level === "info" ? "muted" : opts.flash.level, opts.flash.text);
-  else {
-    const key = opts.detail && opts.selectedId
-      ? "chat.hint.detail"
-      : opts.selectedId
-        ? "chat.hint.selected"
-        : opts.inputEmpty === false
-          ? "chat.hint.typing"
-          : "chat.hint.base";
-    hint = theme.fg("dim", ct(key));
-  }
+  let key: ChatKey;
+  if (opts.palette && opts.palette.length > 0) key = "chat.hint.palette";
+  else if (opts.command) key = "chat.hint.command";
+  else if (opts.detail && opts.selectedId) key = "chat.hint.detail";
+  else if (opts.selectedId) key = "chat.hint.selected";
+  else key = opts.inputEmpty === false ? "chat.hint.typing" : "chat.hint.base";
+  const hint = theme.fg("dim", ct(key));
   return [theme.fg("dim", "─".repeat(width)), padEnd(opts.inputRow ?? "", width), padEnd(" " + hint, width)];
 }
 
@@ -275,5 +272,9 @@ export function composeHud(state: HudState, width: number, height: number, theme
     ? frame(theme.bold(theme.fg("accent", t("tok.title"))), tokenLines, width, stripH, theme)
     : tokenLines.map((l) => padEnd(" " + l, width));
 
-  return [headerRow(state, width, theme), ...main, ...strip, ...promptBox(opts, width, theme)];
+  const rows = [headerRow(state, width, theme), ...main, ...strip];
+  const palette = opts.palette?.slice(0, Math.max(0, bodyH - 2)) ?? [];
+  // The palette covers the bottom rows of the panels, right above the prompt box.
+  if (palette.length > 0) rows.splice(rows.length - palette.length, palette.length, ...palette);
+  return [...rows, ...promptBox(opts, width, theme)];
 }

@@ -86,6 +86,21 @@ export class InputLine {
     this.histIdx = -1;
   }
 
+  /** The cursor as a UTF-16 offset into `text` (what omp's autocomplete provider works with). */
+  get caret(): number {
+    return this.chars.slice(0, this.cursor).join("").length;
+  }
+
+  /** Replaces the text and puts the cursor at the UTF-16 offset `caret` (rounded up to a grapheme boundary). */
+  setAt(text: string, caret: number): void {
+    this.setText(text);
+    let units = 0;
+    let i = 0;
+    while (i < this.chars.length && units < caret) units += this.chars[i++]!.length;
+    this.cursor = i;
+    this.histIdx = -1;
+  }
+
   clear(): void {
     this.chars = [];
     this.widths = [];

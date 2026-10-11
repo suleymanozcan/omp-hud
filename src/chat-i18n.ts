@@ -14,12 +14,26 @@ const tr = {
   "chat.pending": "{n} bekliyor ({what})",
   "chat.pendingSteer": "yönlendirme",
   "chat.pendingAfter": "bitince",
-  "chat.placeholder": "mesaj yazın…",
+  "chat.placeholder": "mesaj yazın, komut için /…",
   "chat.hint.base": "Esc kapat · Enter gönder · Alt+Enter bitince · Tab düğüm · PgUp/PgDn kaydır",
   "chat.hint.typing": "Esc temizle · Enter gönder · Alt+Enter bitince · Tab düğüm · PgUp/PgDn kaydır",
   "chat.hint.selected": "Esc kapat · boş Enter ayrıntı · Tab sonraki düğüm · Alt+Enter bitince · PgUp/PgDn kaydır",
   "chat.hint.detail": "Esc ayrıntıyı kapat · Tab düğüm · Enter ayrıntı",
-  "chat.noSlash": "Bu komut HUD içinde desteklenmiyor: yalnız /hud ... çalışır. Esc ile çıkıp editörde yazın.",
+  "chat.hint.command": "Esc temizle · Enter omp'de çalıştır (HUD gizlenir, bir tuşla döner)",
+  "chat.hint.palette": "↑/↓ seç · Tab/Enter uygula · Esc listeyi kapat",
+  "chat.unknownCommand": "Bilinmeyen komut: /{name}. omp bunu modele düz metin olarak gönderirdi; gönderilmedi (kastettiyseniz Esc ile çıkıp editörde yazın).",
+  "chat.cmdNoEditor": "Komut çalıştırılamadı: omp'nin editörü bulunamadı (omp sürümü uyumsuz olabilir; /hud doctor ayrıntı verir). Esc ile çıkıp editörde yazın.",
+  "chat.cmdSubmitOff": "Komut çalıştırılamadı: omp'nin editörü şu an gönderime kapalı.",
+  "chat.cmdNoHandle": "Komut çalıştırılamadı: HUD gizlenemiyor (omp sürümü uyumsuz olabilir). Esc ile çıkıp editörde yazın.",
+  "chat.cmdFailed": "Komut çalıştırılamadı: {err}",
+  "chat.cmdBusy": "Önceki komut hâlâ çalışıyor; bitince tekrar deneyin.",
+  "chat.cmdRan": "omp'de çalıştırıldı: {line}",
+  "slash.resume": "HUD: devam için herhangi bir tuş",
+  "slash.doctor": "slash: editör {editor} · tamamlama sağlayıcısı {base} · son komut: {last}",
+  "slash.none": "henüz yok",
+  "slash.last": "{kind}, yol {via}: {result}, {ms} ms",
+  "slash.focusLeft": "odak ayrıldı ve döndü",
+  "slash.focusKept": "çıktı omp'nin ekranında",
   "chat.alreadyFull": "Zaten tam ekrandasınız.",
   "chat.demoReply": "Bu bir demo: mesajınız omp'ye gönderilmedi.",
   "chat.sendFailed": "Mesaj gönderilemedi: {err}",
@@ -27,7 +41,9 @@ const tr = {
     "Tam ekranda yazabilirsiniz. Enter gönderir, editördeki Enter gibi: ajan meşgulken mesaj bir sonraki adımda ona iletilir (omp'de 'Steering'). Alt+Enter mesajı ajan bitirince iletir (omp'de 'After yield'). " +
     "Esc: önce ayrıntıyı, sonra girdiyi temizler, sonra kapatır. Tab/Shift+Tab düğüm seçer, boş Enter ayrıntıyı açar. " +
     "PgUp/PgDn ya da Ctrl+↑/↓ sohbeti kaydırır, End (Ctrl+End) en alta döner. Girdi satırında ←/→, Home/End, Ctrl+A/E, Ctrl+U, Ctrl+W, ↑/↓ (geçmiş). " +
-    "Yalnız /hud ... komutları HUD içinde çalışır.",
+    "Komut için / yazın: HUD gizlenir, komut omp'nin kendi editöründen çalışır (planlar, /usage, /model, kendi komutlarınız) ve çıktısı omp'nin ekranında görünür; görüntüleyici ya da diyalog kapanınca HUD'a dönülür, başka çıktılar için bir tuşa basılır. " +
+    "Girdinin altındaki liste omp'nin kendi tamamlamasını izler (↑/↓ seç, Tab/Enter uygula, Esc kapatır); @ dosya tamamlar. !komut ve $ kod satırları da omp'de çalışır. Bilinmeyen /komut burada reddedilir (omp onu modele düz metin olarak gönderirdi). " +
+    "/hud ... komutları HUD içinde çalışır.",
   "demo.chat.u1": "Kimlik doğrulama modülünü düzenle ve token yenileme için test ekle.",
   "demo.chat.a1":
     "Başlıyorum. Plan şöyle:\n\n1. `auth.ts` dosyasını oturum ve token yardımcılarına böl\n2. Sahte saatle bir yenileme testi ekle\n3. Tüm paketi çalıştır\n\n```ts\nexport function refresh(token: Token): Token {\n  return { ...token, expires: now() + TTL };\n}\n```\n\nAlt ajanlar şu an çağrı noktalarını tarıyor.",
@@ -49,12 +65,26 @@ const en: Record<keyof typeof tr, string> = {
   "chat.pending": "{n} pending ({what})",
   "chat.pendingSteer": "steering",
   "chat.pendingAfter": "after yield",
-  "chat.placeholder": "type a message…",
+  "chat.placeholder": "type a message, or / for commands…",
   "chat.hint.base": "Esc close · Enter send · Alt+Enter after yield · Tab node · PgUp/PgDn scroll",
   "chat.hint.typing": "Esc clear · Enter send · Alt+Enter after yield · Tab node · PgUp/PgDn scroll",
   "chat.hint.selected": "Esc close · empty Enter details · Tab next node · Alt+Enter after yield · PgUp/PgDn scroll",
   "chat.hint.detail": "Esc close details · Tab node · Enter details",
-  "chat.noSlash": "This command is not supported inside the HUD: only /hud ... works. Press Esc and type it in the editor.",
+  "chat.hint.command": "Esc clear · Enter run in omp (the HUD hides, a key brings it back)",
+  "chat.hint.palette": "↑/↓ select · Tab/Enter apply · Esc close the list",
+  "chat.unknownCommand": "Unknown command: /{name}. omp would send it to the model as plain text, so it was not sent (press Esc and type it in the editor if you mean it).",
+  "chat.cmdNoEditor": "Could not run the command: omp's editor was not found (this omp version may be incompatible; /hud doctor has details). Press Esc and type it in the editor.",
+  "chat.cmdSubmitOff": "Could not run the command: omp's editor does not accept submits right now.",
+  "chat.cmdNoHandle": "Could not run the command: the HUD cannot be hidden (this omp version may be incompatible). Press Esc and type it in the editor.",
+  "chat.cmdFailed": "Could not run the command: {err}",
+  "chat.cmdBusy": "The previous command is still running; try again when it is done.",
+  "chat.cmdRan": "ran in omp: {line}",
+  "slash.resume": "HUD: press any key to return",
+  "slash.doctor": "slash: editor {editor} · autocomplete provider {base} · last command: {last}",
+  "slash.none": "none yet",
+  "slash.last": "{kind} via {via}: {result}, {ms} ms",
+  "slash.focusLeft": "focus left and came back",
+  "slash.focusKept": "output on omp's screen",
   "chat.alreadyFull": "You are already in full screen.",
   "chat.demoReply": "This is a demo: your message was not sent to omp.",
   "chat.sendFailed": "Could not send the message: {err}",
@@ -62,7 +92,9 @@ const en: Record<keyof typeof tr, string> = {
     "You can type in full screen. Enter sends, like the editor's Enter: while the agent is busy the message reaches it at its next step (omp's 'Steering'). Alt+Enter delivers it once the agent yields (omp's 'After yield'). " +
     "Esc first closes the details, then clears the input, then closes the HUD. Tab/Shift+Tab selects a node, an empty Enter opens its details. " +
     "PgUp/PgDn or Ctrl+↑/↓ scroll the chat, End (Ctrl+End) jumps back to the bottom. In the input: ←/→, Home/End, Ctrl+A/E, Ctrl+U, Ctrl+W, ↑/↓ (history). " +
-    "Only /hud ... commands run inside the HUD.",
+    "Type / for omp's commands: the HUD hides, the command runs through omp's own editor (plans, /usage, /model, your own commands) and its output appears on omp's screen; a viewer or dialog returns to the HUD when closed, anything else waits for a key. " +
+    "The list under the prompt follows omp's own completion (↑/↓ select, Tab/Enter apply, Esc closes it); @ completes files. !command and $ code lines run in omp too. An unknown /command is refused here (omp would send it to the model as text). " +
+    "/hud ... commands run inside the HUD.",
   "demo.chat.u1": "Refactor the auth module and add tests for the token refresh.",
   "demo.chat.a1":
     "On it. Here is the plan:\n\n1. Split `auth.ts` into session and token helpers\n2. Add a refresh test with a fake clock\n3. Run the whole suite\n\n```ts\nexport function refresh(token: Token): Token {\n  return { ...token, expires: now() + TTL };\n}\n```\n\nThe subagents are scanning the call sites now.",
