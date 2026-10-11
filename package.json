@@ -21,7 +21,9 @@
     "README.md",
     "README.tr.md",
     "LICENSE",
-    "docs/img"
+    "docs/img",
+    "docs/slash-commands.md",
+    "docs/slash-commands.tr.md"
   ],
   "omp": {
     "extensions": ["./index.ts"]

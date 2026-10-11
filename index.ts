@@ -2,6 +2,8 @@
 // Default view: the dock, a short panel next to the editor (you keep typing). Commands: /hud (dock on/off),
 // /hud full (full screen with a conversation panel and a prompt: write to omp without leaving it), /hud size, /hud place, /hud demo [off|full], /hud compact [on|off], /hud status [on|off],
 // /hud pad [0-3], /hud lang [tr|en|auto], /hud doctor, /hud help.
+// Inside /hud full, other `/commands`, `!shell` and `$ python` lines run in omp itself (the HUD hides, the line goes through omp's editor,
+// the HUD comes back) and `/` opens a command palette fed by omp's own autocomplete provider: see docs/slash-commands.md.
 import type { ExtensionAPI, ExtensionContext, OverlayHandle, RegisteredCommand, Theme } from "@oh-my-pi/pi-coding-agent";
 import type { Component, TUI } from "@oh-my-pi/pi-tui";
 import pkg from "./package.json" with { type: "json" };

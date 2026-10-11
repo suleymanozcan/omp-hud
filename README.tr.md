@@ -37,7 +37,7 @@ Dock, editörün hemen üstünde duran bir panel. Böylece HUD görünürken pro
 
 Dock satırlarını üstündeki konuşma alanından alır; kısa terminallerde `/hud size small` (ya da `OMP_HUD_SIZE=small`) kullan. Boştaki dock saniyede yaklaşık 4, meşgul dock yaklaşık 8 kez yenilenir. Komutlar: `/hud help`.
 
-**Dock neden varsayılan?** Tam ekran HUD ekranın tamamını kaplar. Kendi girdi kutusu ve sohbet paneli vardır ama omp'nin editörü değildir (çok satırlı girdi, ek dosya ve `/hud ...` dışındaki slash komutları yok); 1-3 satırlık kompakt panel ise ekranın altında kolayca kaybolur. Dock çalıştığınız yerde (prompt'un üstünde) görünür kalır, son satırları gizleyen pencerelerde kırpılmaz ve yer gerektiğinde `/hud` ile gizlenir.
+**Dock neden varsayılan?** Tam ekran HUD ekranın tamamını kaplar. Kendi girdi kutusu ve sohbet paneli vardır ama omp'nin editörü değildir (çok satırlı girdi ve ek dosya yok; omp'nin slash komutları omp'nin editöründen çalışır ve çıktılarını HUD'da değil omp'nin ekranında gösterir); 1-3 satırlık kompakt panel ise ekranın altında kolayca kaybolur. Dock çalıştığınız yerde (prompt'un üstünde) görünür kalır, son satırları gizleyen pencerelerde kırpılmaz ve yer gerektiğinde `/hud` ile gizlenir.
 
 omp'siz önizleme: `bun scripts/preview.ts --dock --size large --width 200 --rows 45 --at 3,14,24,36` (demo yerine dinlenen dock için `--idle empty|tasks|used`, HTML dosyası için `--html out.html`).
 
@@ -49,11 +49,24 @@ omp'siz önizleme: `bun scripts/preview.ts --dock --size large --width 200 --row
 - **Gönderme.** `Enter` omp editöründeki Enter'ın yaptığını yapar: ajan boştayken normal bir istem, ajan meşgulken **yönlendirme** (`· yönlendirme (sonraki adımda)`): omp mesajı turun bitmesini beklemeden ajana bir sonraki adımında verir. `Alt+Enter` mesajı **bitince** gönderir (`· bitince`, omp'nin "After yield" kuyruğu): ajanın yapacak işi kalmayınca çalışır; uzun bir turdan sonra bu saatler sürebilir; ajan boştaysa ikisi de normal istemdir. Mesajlar beklerken sohbet başlığında `2 bekliyor (1 yönlendirme, 1 bitince)` gibi bir rozet görünür (HUD'dan gönderilen mesajları sayar). Gönderdiğiniz mesaj hemen görünür ve omp'nin kendi kullanıcı mesajıyla eşleştirilir; yani iki kez görünmez. Sohbet ayrıca editörden yazılan mesajları, oturum başında ya da oturum değişince de oturum geçmişinin son 40 mesajını gösterir.
 - **Enter neden yönlendirir (`aside` değil).** HUD `pi.sendUserMessage(text)` çağrısını `deliverAs` vermeden yapar; omp bunu editördeki Enter gibi çalıştırır (akış sırasında yönlendirme). omp 18.8.9'da denendi: mesaj, `sleep` çalışırken gönderildikten yaklaşık bir saniye sonra ajana ulaştı (omp çalışan `bash`i öldürmedi, arka plana aldı: "Backgrounded early to handle an incoming message; the command keeps running") ve ajan aynı turda cevap verdi. `aside` seçilmedi: omp aside'ları düzenlenebilir kuyruğunun dışında tutar (yalnız yönlendirme ve bitince mesajları listelenir; ne görebilir ne geri alabilirsiniz) ve omp belgesine göre yalnız çalışan araç grubundan sonra iletir. `followUp` "After yield" kuyruğudur ve `Alt+Enter`de kalır. omp'nin kendi listesi ("Steering" / "After yield") bir sonraki kullanıcı mesajında yenilenir; yani bir eklentinin kuyruğa attığı mesaj orada geç görünebilir: HUD'daki etiket ve rozet anlıktır.
 - **Kuyruktaki mesajları kaldırma.** Eklenti omp'nin kuyruğunu temizleyemez (`ctx` yalnız `hasPendingMessages()`, `isIdle()` ve `abort()` sunar). Editörde omp'nin kendi tuşlarını kullanın: `Alt+Up` / `Shift+Up` (`app.message.dequeue`) kuyruktaki son mesajı her basışta editöre geri alır; ajan çalışırken `Esc` kuyruktaki tüm mesajları editöre geri koyar ve turu keser.
-- **Komutlar.** HUD içinde yalnız `/hud ...` satırları çalışır (örneğin `/hud help`, `/hud lang tr`); çıktıları sohbet panelinde `hud ▸` etiketiyle görünür. Diğer her `/` satırı bir ipucuyla reddedilir (omp, eklentinin gönderdiği metinde komut açmaz) ve metin girdi kutusunda kalır.
+- **Komutlar.** `/hud ...` satırları HUD içinde çalışır (örneğin `/hud help`, `/hud lang tr`); çıktıları sohbet panelinde `hud ▸` etiketiyle görünür. Diğer her `/komut` (omp'nin kendisinin: `/plan`, `/usage`, `/model`, `/new`, ...; kendi komutlarınız, istem şablonları, skill'ler), `!kabuk` ve `$ python` satırı **omp'nin kendisinde** çalışır; aşağıdaki [Tam ekranda slash komutları](#tam-ekranda-slash-komutları) bölümüne bakın.
 - **Kaydırma.** Panel en yeni satırı izler. `PgUp` / `Ctrl+↑` izlemeyi bırakır (başlıkta `↓ yeni` görünür); yeni metin okuduğunuz yeri kaydırmaz. `End` / `Ctrl+End` yeniden izler.
 - **Metin işleme.** Mesajlardan kontrol karakterleri ve ANSI dizileri temizlenir; çok uzun mesajlar kısaltılır (mesaj başına 12 KB, en çok 40 mesaj). Markdown sade metin olarak gösterilir: başlık ve kalın işaretleri düşer, listeler işaretini korur, kod blokları sönük ve girintilidir. **Hiçbir satır kesilmez:** geniş satırlar panel genişliğinde (görünen hücre genişliğine göre) sözcük sınırında sarılır; panelden geniş bir sözcük (URL, yol) ve kod satırı hücre hücre bölünür (kod devam satırları `↪` ile başlar). Panele sığmayan bir markdown tablosu kayıtlara dönüşür: her satır için ilk hücre, altında `başlık: değer` satırları; sığan tablo yazıldığı gibi kalır. Genişlik değişince (pencere boyutu) kaydırdığınız yer aynı mesajda kalır.
 
 Model olmadan denemek için: `/hud demo full` (orada yazdıklarınız omp'ye gitmez). omp'siz önizleme: `bun scripts/preview.ts --at 14,22 --width 200 --height 50 --html out.html` (başka boyutlar için örneğin `--width 100 --height 30`).
+
+### Tam ekranda slash komutları
+
+Girdi kutusuna `/` yazın; tam ekran HUD, ondan çıkmadan omp'nin kendi komutlarıyla çalışır.
+
+- **Komut listesi.** `/` (ya da `@`) yazınca girdinin üstünde en çok 8 satırlık bir liste açılır; **omp'nin kendi otomatik tamamlamasından** gelir: ad, argüman ipucu ve açıklama, omp'nin sırasıyla ve canlı açıklamalarıyla (`/tools` için `Tools: 12 active / 22 available`). `↑` / `↓` seçer, `Tab` ya da `Enter` uygular, `Esc` listeyi kapatır (ikinci `Esc` girdiyi temizler). Argümanlar da tamamlanır (`/session ` için `info`, `delete`, `pin`), `@` dosya tamamlar. Tam yazılmış bir komut adı `Enter` ile yeniden uygulanmaz, çalışır.
+- **Komutu çalıştırma.** `Enter`'da HUD kendini gizler, satırı omp'nin editörüne koyar ve gönderir; böylece her komut orada yazılmış gibi davranır: omp'nin yerleşikleri (`/plan`, `/usage`, `/model`, `/new`, `/tools`, ...), eklentilerinizin komutları, istem şablonları, skill'ler, `!kabuk` ve `$ python` satırları. Ajan meşgulken de çalışır (omp'nin kendi kuralları geçerlidir). omp'nin editöründe bekleyen taslağınız korunur ve geri konur.
+- **Çıktı nereye gider.** omp komut çıktısını **kendi ekranına** basar, HUD'un sohbet paneline değil. Bir komut görüntüleyici ya da diyalog açarsa (`/tools`, `/model`, `/settings`, komutunuzun `select`'i) her şeyin üstünde görünür ve siz kapatınca HUD kendiliğinden döner. Komut yalnız konuşma dökümüne ya da durum satırına yazarsa (`!echo hi`, `/ping`, `/new`, `/dirs`) HUD gizli kalır ki çıktıyı okuyabilesiniz; durum satırı `HUD: devam için herhangi bir tuş` der ve ilk tuş HUD'u geri getirir (o tuş yutulur, hiçbir yere yazılmaz). Panele yalnız `omp'de çalıştırıldı: /dirs` gibi tek satırlık bir not düşer.
+- **Bilinmeyen komutlar reddedilir.** omp bilinmeyen bir `/xyz`'yi reddetmez, modele düz metin olarak gönderir. HUD önce adı omp'nin tamamlamasıyla doğrular; bilinmeyen ad gönderilmez, bir uyarıyla girdide kalır. Yalnızca `/` ile başlayan metin (örneğin bir yol) omp'nin editöründen gönderilmelidir.
+- **Bazı girdiler model isteği başlatır.** Bu omp'nin davranışıdır, editöründekiyle aynı: istem şablonları ve skill'ler, argümanı istem olan komutlar (`/plan <metin>`) ve modelle konuşan komutlar (`/compact`, `/handoff`, `/btw`, `/retry`, ...). `/exit` ve `/quit` omp'yi, HUD'la birlikte kapatır. `/usage` sağlayıcılarınıza ağdan sorgu yapabilir.
+- **Demo ve yedek yollar.** `/hud demo full` içinde komutlar omp'ye gitmez. omp'nin editörü bulunamazsa (uyumsuz omp sürümü) HUD bir uyarıyla geri gelir ve `/hud doctor` nedenini söyler; `Esc` ile çıkıp komutu editörde yazın.
+
+Nasıl çalıştığı, nelerin doğrulandığı (omp 18.8.9) ve dayandığı belgesiz yüzeyler: [docs/slash-commands.tr.md](docs/slash-commands.tr.md). Not: eklentiler başlangıçta yüklenir ve ne `ctx.reload()` ne de `/reload-plugins` bir eklentinin kodunu yeniden değerlendirir (omp 18.8.9'da denendi); HUD'u güncelledikten sonra omp'yi yeniden başlatın.
 
 ## Kurulum
 
@@ -118,7 +131,7 @@ extensions:
 | `/hud lang tr\|en\|auto` | Arayüz dilini bu çalışma için değiştirir (kalıcı değildir); argümansız mevcut dili gösterir. |
 | `/hud status on\|off` | omp'nin durum metninde tek satırlık özet (`hud ○ hazır`, `hud ⠹ düşünüyor · 2 çalışıyor 1 bitti · giriş 12k çıkış 3k · bağlam 42%`); varsayılan açık; argümansız durumu gösterir. |
 | `/hud pad 0-3` | Editörün altındaki görünümler ve tam ekran HUD için alt tarafta boş bırakılan satır (varsayılan 1, ortam `OMP_HUD_PAD`); argümansız değeri gösterir. Editörün üstündeki dock'a uygulanmaz. |
-| `/hud doctor` | Tanı: sürüm, dil, mod, dock / kompakt / durum satırı durumu, terminal boyutu, mağaza, zamanlayıcı. Ortam dökümü yok (yalnız `OMP_HUD_LANG` ve `COLORTERM`). |
+| `/hud doctor` | Tanı: sürüm, dil, mod, dock / kompakt / durum satırı durumu, terminal boyutu, mağaza, zamanlayıcı ve slash komut hattı (editör bulundu mu, tamamlama sağlayıcısı, son komut). Ortam dökümü yok (yalnız `OMP_HUD_LANG` ve `COLORTERM`). |
 | `/hud help` | Komut özetini gösterir. |
 
 Her komut kısa bir bildirimle yanıt verir (örneğin `Kompakt HUD: açık (editörün altında 1-3 satır)` ya da `zaten açık`).
@@ -128,13 +141,13 @@ Tam ekrandaki tuşlar ([Tam ekran](#tam-ekran) bölümünde ayrıntı):
 | Tuş | Etki |
 | --- | --- |
 | yazı, `Backspace`, `Delete`, `←` / `→`, `Home` / `End`, `Ctrl+A` / `Ctrl+E`, `Ctrl+U` (temizle), `Ctrl+W` (kelime sil), `Ctrl+K` (sona kadar sil), yapıştırma | Girdi kutusunu düzenler. |
-| `↑` / `↓` | Bu oturumun girdi geçmişi (50 kayıt). |
-| `Enter` | Girdiyi omp editöründeki Enter gibi gönderir (ajan meşgulken yönlendirme). Girdi boşken ve bir düğüm seçiliyse düğüm ayrıntısını açar/kapatır. |
+| `↑` / `↓` | Bu oturumun girdi geçmişi (50 kayıt); komut listesi açıkken seçimi taşır. |
+| `Enter` | Girdiyi omp editöründeki Enter gibi gönderir (ajan meşgulken yönlendirme); `/komut`, `!kabuk` ya da `$ python` satırı omp'de çalışır. Komut listesi açıkken önce seçili öğeyi uygular (tam yazılmış bir komut adı çalışır). Girdi boşken ve bir düğüm seçiliyse düğüm ayrıntısını açar/kapatır. |
 | `Alt+Enter` | Bitince gönderir (omp'nin "After yield" kuyruğu): ajan meşgulken mesaj iş bitene kadar bekler. |
-| `Tab` / `Shift+Tab` | Sonraki / önceki düğümü seçer. |
+| `Tab` / `Shift+Tab` | Sonraki / önceki düğümü seçer (komut listesi açıkken `Tab` seçili öğeyi uygular). |
 | `PgUp` / `PgDn`, `Ctrl+↑` / `Ctrl+↓` | Sohbeti kaydırır. |
 | `End` (girdi boşken), `Ctrl+End` | En yeni satıra atlar ve yeniden izler. |
-| `Esc` | Ayrıntı açıksa onu kapatır; değilse dolu girdiyi temizler; değilse HUD'dan çıkar. |
+| `Esc` | Komut listesi açıksa onu kapatır; değilse ayrıntı açıksa onu kapatır; değilse dolu girdiyi temizler; değilse HUD'dan çıkar. |
 
 ### Dil
 
@@ -165,8 +178,9 @@ bun scripts/preview.ts --frames 2 --width 140 --height 40 --at 14,24 --compact -
 
 - **Yalnızca omp 18.8.9'da denendi** (macOS; Ghostty ve cmux). Diğer omp sürümleri ve diğer terminaller: bilinmiyor.
 - **Belgelenmemiş iç kanallara dayanır.** Alt ajan verisi `pi.events` üzerindeki `task:subagent:lifecycle` ve `task:subagent:progress` olaylarından, tam ekran ise overlay `fullscreen` seçeneğinden gelir. İkisi de belgeli sözleşme değildir; omp güncellenince bozulabilir. Yedek yollar vardır: alt ajan olayları değişirse alt ajan düğümleri boş kalabilir, çekirdek, akış, görevler ve token göstergeleri çalışmaya devam eder; `fullscreen` kalkarsa HUD normal bir overlay'e düşer.
+- **Slash komut hattı daha fazla belgesiz iç yüzeye dayanır.** Komut çalıştırmak HUD katmanını gizlemeyi (`OverlayHandle.setHidden`), omp'nin editörünü TUI üzerinden bulmayı (`tui.getFocused()`, `tui.hasOverlay()`, `tui.children`) ve `submit()` çağırmayı gerektirir; palet omp'nin tamamlama sağlayıcısını `ctx.ui.addAutocompleteProvider` ile okur. omp belgelerinde yalnız katman tutamağı ve sağlayıcı kancası geçer; gerisi yalnız omp 18.8.9'a karşı doğrulandı. Her adım korumalıdır: editör bulunamazsa ya da gönderimi kapalıysa HUD bir açıklamayla geri gelir; `Esc` ile çıkıp komutu editörde yazarsınız. `/hud doctor` editörün bulunup bulunmadığını gösterir. Ayrıntı: [docs/slash-commands.tr.md](docs/slash-commands.tr.md).
 - **omp'nin ana görünümünü değiştirmez.** omp'de `setHeader` / `setFooter` etkisizdir; HUD yalnızca widget'lar (editörün yanındaki dock, altındaki kompakt panel), durum metni satırı ve tam ekran overlay olarak görünür.
-- **Tam ekranın kendi girdi kutusu vardır, omp'nin editörü değildir.** `/hud full` bir sohbet paneli ve tek satırlık bir girdi kutusu gösterir; omp'nin editörünü değil: çok satırlı girdi, ek dosya ya da `@` otomatik tamamlama yoktur ve yalnız `/hud ...` komutları çalışır (diğer `/` komutları bir ipucuyla reddedilir; `Esc` ile çıkıp editörü kullanın). Gönderdiğiniz metin ajana düz kullanıcı mesajı olarak gider (şablon açılımı yok). Dock odağı almaz: orada normal editörü kullanmaya devam edersiniz.
+- **Tam ekranın kendi girdi kutusu vardır, omp'nin editörü değildir.** `/hud full` bir sohbet paneli ve tek satırlık bir girdi kutusu gösterir; omp'nin editörünü değil: çok satırlı girdi ve ek dosya yoktur. `/komut`, `!kabuk` ve `$ python` satırları omp'nin kendi editörüne verilir ([Tam ekranda slash komutları](#tam-ekranda-slash-komutları) bölümüne bakın); düz metin ajana kullanıcı mesajı olarak gider (şablon açılımı yok). Dock odağı almaz: orada normal editörü kullanmaya devam edersiniz.
 - **Terminal:** braille ve blok karakterler yoğun kullanılır; braille'i iyi çizen bir yazı tipiyle truecolor terminal (`COLORTERM=truecolor`) önerilir. Terminal en az 50x14 olmalıdır. TUI olmayan kiplerde HUD kurulmaz.
 - **Yerleşik özelliklerle örtüşme:** omp'nin Agent Hub'ı (`Alt+A`) benzer alt ajan verisini gösterir. Editörün üstündeki yerleşik "Subagents" bloğu HUD ile çakışırsa `display.pinnedAgents: off` ayarlayın.
 
@@ -201,8 +215,9 @@ src/status-text.ts       durum çubuğu için tek satırlık düz metin özeti
 src/pad.ts               alt boşluk (`/hud pad`, `OMP_HUD_PAD`)
 src/layout-settings.ts   dock boyutu ve yeri (`/hud size`, `/hud place`, `OMP_HUD_SIZE`, `OMP_HUD_PLACE`)
 src/dock-i18n.ts         yalnız dock'a ait en / tr metinleri
-src/render/              braille tuval, çekirdek, yörünge halkaları, dock sahnesi, tam ekran sahnesi (düğüm etiketleri), akış, görev, token, yerleşim
+src/render/              braille tuval, çekirdek, yörünge halkaları, dock sahnesi, tam ekran sahnesi (düğüm etiketleri), akış, görev, token, yerleşim, komut paleti
 src/components/          DockHud (editörün yanındaki widget), FullHud (overlay), CompactHud (1-3 satır), PaddedComponent
+src/slash.ts             tam ekranda omp slash komutları: satır sınıfları, tamamlama bağdaştırıcıları, editör hattı
 scripts/preview.ts       omp'siz önizleme (kareler / HTML / canlı)
 scripts/ansi-to-html.ts  önizleme için ANSI -> HTML dönüştürücü
 scripts/shim-pi-tui.ts   düz bun için pi-tui taklidi (yalnız önizleme ve duman testi)

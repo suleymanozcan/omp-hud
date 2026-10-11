@@ -37,7 +37,7 @@ The dock is a panel that sits right above the editor, so you can keep typing pro
 
 The dock takes its rows from the transcript above it; use `/hud size small` (or `OMP_HUD_SIZE=small`) on short terminals. The idle dock redraws about 4 times per second, a busy one about 8. Commands: see `/hud help`.
 
-**Why the dock is the default.** The fullscreen HUD covers the whole screen. It has its own prompt and conversation panel, but it is not omp's editor (no multi-line input, attachments or slash commands other than `/hud ...`), and the 1-3 row compact panel is easy to lose at the bottom of the screen. The dock stays visible where you work (above the prompt), is not clipped by windows that hide the last rows, and can be hidden with `/hud` when you need the space.
+**Why the dock is the default.** The fullscreen HUD covers the whole screen. It has its own prompt and conversation panel, but it is not omp's editor (no multi-line input or attachments; omp's slash commands run through omp's editor and show their output on omp's screen, not in the HUD), and the 1-3 row compact panel is easy to lose at the bottom of the screen. The dock stays visible where you work (above the prompt), is not clipped by windows that hide the last rows, and can be hidden with `/hud` when you need the space.
 
 Preview without omp: `bun scripts/preview.ts --dock --size large --width 200 --rows 45 --at 3,14,24,36` (add `--idle empty|tasks|used` for a resting dock instead of the demo, `--html out.html` for an HTML file).
 
@@ -49,11 +49,24 @@ Preview without omp: `bun scripts/preview.ts --dock --size large --width 200 --r
 - **Sending.** `Enter` does what the omp editor's Enter does: with an idle agent a normal prompt, while the agent is busy a **steer** (`· steering (next step)`): omp hands it to the agent at its next step instead of making it wait for the end of the turn. `Alt+Enter` sends it **after yield** (`· after yield`, omp's "After yield" queue): it runs only when the agent has nothing left to do, which after a long turn can take hours; an idle agent starts a normal prompt either way. While messages wait, the conversation title shows a badge such as `2 pending (1 steering, 1 after yield)` (it counts the messages sent from the HUD). A message you send appears at once and is matched with omp's own user message, so it is never shown twice. The conversation also shows messages typed in the editor and, at session start or after a session switch, the last 40 messages of the session history.
 - **Why Enter steers (and not `aside`).** The HUD calls `pi.sendUserMessage(text)` without `deliverAs`, which omp runs as the editor's Enter does (`prompt` with a steer while streaming). Checked in omp 18.8.9: the message reached the agent about a second after it was sent while a `sleep` was running (omp backgrounded the running `bash` instead of killing it: "Backgrounded early to handle an incoming message; the command keeps running") and the agent answered it in the same turn. `aside` was not chosen: omp keeps asides out of its editable queue (only steering and follow-up messages are listed, so you could neither see nor withdraw one) and, per omp's docs, delivers them only after the running tool batch. `followUp` is the "After yield" queue and stays on `Alt+Enter`. omp's own list ("Steering" / "After yield") is refreshed by omp at the next user message, so a message queued by an extension may show up there late: the HUD tag and badge are immediate.
 - **Removing queued messages.** An extension cannot clear omp's queue (`ctx` only offers `hasPendingMessages()`, `isIdle()` and `abort()`). Use omp's own keys in the editor: `Alt+Up` / `Shift+Up` (`app.message.dequeue`) takes the last queued message back into the editor, one per press; `Esc` while the agent is working restores all queued messages into the editor and interrupts the run.
-- **Commands.** Only `/hud ...` lines run inside the HUD (for example `/hud help`, `/hud lang tr`); their output appears in the conversation panel with a `hud ▸` label. Any other `/` line is refused with a hint (omp does not expand commands for text sent by extensions), and the text stays in the prompt.
+- **Commands.** `/hud ...` lines run inside the HUD (for example `/hud help`, `/hud lang tr`); their output appears in the conversation panel with a `hud ▸` label. Every other `/command` (omp's own: `/plan`, `/usage`, `/model`, `/new`, ...; your own commands, prompt templates, skills), `!shell` and `$ python` line runs in **omp itself**, see [Slash commands](#slash-commands-in-full-screen) below.
 - **Scrolling.** The panel follows the newest line. `PgUp` / `Ctrl+↑` stop following (the title shows `↓ new`); new text then does not move what you read. `End` / `Ctrl+End` follow again.
 - **Text handling.** Control characters and ANSI sequences are stripped from messages; very long messages are clipped (12 KB each, 40 messages kept). Markdown is shown as plain text: headings and bold markers are dropped, lists keep their markers, code blocks are dim and indented. **No line is cut off:** wide lines wrap at the panel width (measured in visible cells) at word boundaries; a word wider than the panel (URL, path) and a code line are split cell by cell (code continuation lines start with `↪`). A markdown table that does not fit the panel becomes records: the first cell of each row, then `header: value` lines under it; a table that fits stays as written. When the width changes (window resize) a scrolled view stays on the same message.
 
 Try it without a model: `/hud demo full` (typing there never reaches omp). Preview without omp: `bun scripts/preview.ts --at 14,22 --width 200 --height 50 --html out.html` (try other sizes, for example `--width 100 --height 30`).
+
+### Slash commands in full screen
+
+Type `/` in the prompt and the full-screen HUD works with omp's own commands without leaving it.
+
+- **Command list.** Typing `/` (or `@`) opens a list above the prompt with at most 8 rows, taken from **omp's own autocomplete**: name, argument hint and description, in omp's order with its live descriptions (`/tools` shows `Tools: 12 active / 22 available`). `↑` / `↓` select, `Tab` or `Enter` apply, `Esc` closes the list (a second `Esc` clears the prompt). Arguments complete too (`/session ` offers `info`, `delete`, `pin`) and `@` completes files. A complete name typed in full runs on `Enter` instead of being re-applied.
+- **Running a command.** On `Enter` the HUD hides itself, puts the line into omp's editor and submits it, so every command behaves exactly as if typed there: omp's built-ins (`/plan`, `/usage`, `/model`, `/new`, `/tools`, ...), commands of your extensions, prompt templates, skills, `!shell` and `$ python` lines. It also works while the agent is busy (omp's own rules apply). A draft you had in omp's editor is kept and put back.
+- **Where the output goes.** omp prints command output into **its own screen**, not into the HUD's conversation panel. When a command opens a viewer or a dialog (`/tools`, `/model`, `/settings`, a `select` of your command) it appears over everything and the HUD returns by itself when you close it. When a command only prints into the transcript or the status line (`!echo hi`, `/ping`, `/new`, `/dirs`), the HUD stays hidden so you can read the output, the status line says `HUD: press any key to return`, and the first key brings the HUD back (that key is swallowed, it is not typed anywhere). The panel only gets a one-line note such as `ran in omp: /dirs`.
+- **Unknown commands are refused.** omp does not reject an unknown `/xyz`: it sends it to the model as plain text. The HUD checks the name against omp's completion first; an unknown name is not sent and stays in the prompt with a notice. Text that only starts with a `/` (a path, for example) has to be sent from omp's editor.
+- **Some inputs start a model request.** That is omp's behavior, the same as in its editor: prompt templates and skills, commands with arguments that become a prompt (`/plan <text>`), and commands that talk to a model (`/compact`, `/handoff`, `/btw`, `/retry`, ...). `/exit` and `/quit` end omp and the HUD with it. `/usage` may query your providers over the network.
+- **Demo and fallbacks.** In `/hud demo full` commands never reach omp. If omp's editor cannot be found (an incompatible omp version), the HUD comes back with a notice and `/hud doctor` says why; press `Esc` and type the command in the editor.
+
+How it works, what was verified (omp 18.8.9) and the undocumented parts it depends on: [docs/slash-commands.md](docs/slash-commands.md). Note: extensions load at startup and neither `ctx.reload()` nor `/reload-plugins` re-evaluates an extension's code (checked on omp 18.8.9), so restart omp after updating the HUD.
 
 ## Install
 
@@ -118,7 +131,7 @@ extensions:
 | `/hud lang tr\|en\|auto` | Switch the UI language for this run (not persisted); no argument shows the current one. |
 | `/hud status on\|off` | One-line summary (`hud ○ ready`, `hud ⠹ thinking · 2 running 1 done · in 12k out 3k · ctx 42%`) in omp's status text, on by default; no argument shows the state. |
 | `/hud pad 0-3` | Blank rows kept free at the bottom of views below the editor and the fullscreen HUD (default 1, env `OMP_HUD_PAD`); no argument shows the value. It does not apply to the dock above the editor. |
-| `/hud doctor` | Diagnostics: version, language, mode, dock / compact / status line state, terminal size, store, timer. No environment dump (only `OMP_HUD_LANG` and `COLORTERM`). |
+| `/hud doctor` | Diagnostics: version, language, mode, dock / compact / status line state, terminal size, store, timer, and the slash-command route (editor found, autocomplete provider, last command). No environment dump (only `OMP_HUD_LANG` and `COLORTERM`). |
 | `/hud help` | Print the command summary. |
 
 Every command answers with a short notification (for example `Compact HUD: on (1-3 lines below the editor)`, or `already on`).
@@ -128,13 +141,13 @@ Keys in fullscreen (details in [Full screen](#full-screen)):
 | Key | Effect |
 | --- | --- |
 | text, `Backspace`, `Delete`, `←` / `→`, `Home` / `End`, `Ctrl+A` / `Ctrl+E`, `Ctrl+U` (clear), `Ctrl+W` (delete word), `Ctrl+K` (delete to end), paste | Edit the prompt. |
-| `↑` / `↓` | Prompt history of this session (50 entries). |
-| `Enter` | Send the prompt like the omp editor's Enter (a steer while the agent is busy). With an empty prompt and a node selected: open or close its details. |
+| `↑` / `↓` | Prompt history of this session (50 entries); with the command list open they move the selection. |
+| `Enter` | Send the prompt like the omp editor's Enter (a steer while the agent is busy); a `/command`, `!shell` or `$ python` line runs in omp. With the command list open, `Enter` applies the selected item first (a complete command name runs). With an empty prompt and a node selected: open or close its details. |
 | `Alt+Enter` | Send after yield (omp's "After yield" queue): while the agent is busy the message waits until it is done. |
-| `Tab` / `Shift+Tab` | Select the next / previous node. |
+| `Tab` / `Shift+Tab` | Select the next / previous node (with the command list open, `Tab` applies the selected item). |
 | `PgUp` / `PgDn`, `Ctrl+↑` / `Ctrl+↓` | Scroll the conversation. |
 | `End` (empty prompt), `Ctrl+End` | Jump to the newest line and follow it again. |
-| `Esc` | Close the node details if open; else clear a non-empty prompt; else leave the HUD. |
+| `Esc` | Close the command list if open; else close the node details if open; else clear a non-empty prompt; else leave the HUD. |
 
 ### Language
 
@@ -165,8 +178,9 @@ bun scripts/preview.ts --frames 2 --width 140 --height 40 --at 14,24 --compact -
 
 - **Tested on omp 18.8.9 only** (macOS; Ghostty and cmux). Other omp versions and other terminals: unknown.
 - **It relies on undocumented internals.** Sub-agent data comes from the `task:subagent:lifecycle` and `task:subagent:progress` events on `pi.events`, and fullscreen uses the overlay `fullscreen` option. Neither is a documented contract, so an omp update can break them. There are fallbacks: if the sub-agent events change, sub-agent nodes may stay empty while the core, feed, tasks and token gauges keep working; if `fullscreen` disappears, the HUD falls back to a normal overlay.
+- **The slash-command route needs more undocumented internals.** Running a command means hiding the HUD overlay (`OverlayHandle.setHidden`), finding omp's editor through the TUI (`tui.getFocused()`, `tui.hasOverlay()`, `tui.children`) and calling its `submit()`; the palette reads omp's autocomplete provider through `ctx.ui.addAutocompleteProvider`. Only the overlay handle and the provider hook appear in omp's docs; the rest was checked against omp 18.8.9 only. Each step is guarded: when the editor cannot be found or its submit is disabled the HUD comes back with an explanation and you press `Esc` and type the command in the editor. `/hud doctor` shows whether the editor was found. Details: [docs/slash-commands.md](docs/slash-commands.md).
 - **It does not replace omp's main view.** `setHeader` / `setFooter` have no effect in omp, so the HUD shows up only as widgets (the dock next to the editor, the compact panel below it), the status text line and the fullscreen overlay.
-- **Full screen has its own prompt, not the editor.** `/hud full` shows a conversation panel and a one-line prompt, but not omp's editor: no multi-line input, no attachments or `@` autocomplete, and only `/hud ...` slash commands (other `/` commands are refused with a hint; press `Esc` and use the editor). Text you send goes to the agent as a plain user message (no template expansion). The dock does not take focus: there you keep using the normal editor.
+- **Full screen has its own prompt, not the editor.** `/hud full` shows a conversation panel and a one-line prompt, but not omp's editor: no multi-line input and no attachments. `/commands`, `!shell` and `$ python` lines are handed to omp's own editor (see [Slash commands](#slash-commands-in-full-screen)); plain text goes to the agent as a user message (no template expansion). The dock does not take focus: there you keep using the normal editor.
 - **Terminal:** braille and block characters are used heavily; a truecolor terminal (`COLORTERM=truecolor`) with a font that renders braille well is recommended. The terminal must be at least 50x14. The HUD is not installed in non-TUI modes.
 - **Overlap with built-in features:** omp's Agent Hub (`Alt+A`) shows similar sub-agent data. If the built-in pinned "Subagents" block above the editor overlaps with the HUD, set `display.pinnedAgents: off`.
 
@@ -201,8 +215,9 @@ src/status-text.ts       one-line plain-text summary for the status bar
 src/pad.ts               bottom padding (`/hud pad`, `OMP_HUD_PAD`)
 src/layout-settings.ts   dock size and place (`/hud size`, `/hud place`, `OMP_HUD_SIZE`, `OMP_HUD_PLACE`)
 src/dock-i18n.ts         dock-only en / tr strings
-src/render/              braille canvas, core, orbit rings, dock scene, full-screen scene (node labels), feed, tasks, tokens, layout
+src/render/              braille canvas, core, orbit rings, dock scene, full-screen scene (node labels), feed, tasks, tokens, layout, command palette
 src/components/          DockHud (widget next to the editor), FullHud (overlay), CompactHud (1-3 rows), PaddedComponent
+src/slash.ts             omp slash commands in full screen: line classes, completion adapters, the editor route
 scripts/preview.ts       preview without omp (frames / HTML / live)
 scripts/ansi-to-html.ts  ANSI to HTML converter for the preview
 scripts/shim-pi-tui.ts   stand-in for pi-tui under plain bun (preview and smoke only)
