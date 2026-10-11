@@ -4,6 +4,7 @@
 // (the same clock as the store; the preview script patches Date.now in virtual time).
 import type { CoreStatus, HudStore, HudTask } from "./types.ts";
 import { MAIN_AGENT, type MsgKey, t } from "./i18n.ts";
+import { ct, type ChatKey } from "./chat-i18n.ts";
 
 export interface DemoTimers {
   setInterval(fn: () => void, ms: number): unknown;
@@ -262,6 +263,37 @@ export class DemoDriver {
 
   // --- scenario ---
 
+  /** Conversation for the full-screen demo: fixed times and texts, and NO random draws (the rest of the scenario must not change). */
+  private buildChat(at: (ms: number, run: () => void) => void, lap: number): void {
+    const store = this.store;
+    const STEP_MS = 350;
+    const say = (key: ChatKey, ms: number): void => {
+      at(ms, () => store.addChat({ id: `d${lap}-${key}`, role: "user", text: ct(key) }));
+    };
+    // The reply grows in steps (the text is translated when it starts, like a real stream).
+    const reply = (key: ChatKey, from: number, to: number): void => {
+      const id = `d${lap}-${key}`;
+      let full = "";
+      at(from, () => {
+        full = ct(key);
+        store.addChat({ id, role: "assistant", text: full.slice(0, 1), streaming: true });
+      });
+      const steps = Math.max(1, Math.floor((to - from) / STEP_MS));
+      for (let k = 1; k <= steps; k++) {
+        at(from + k * STEP_MS, () => store.updateChat(id, { text: full.slice(0, Math.ceil((full.length * k) / steps)) }));
+      }
+      at(to, () => store.updateChat(id, { text: full, streaming: false }));
+    };
+    say("demo.chat.u1", 500);
+    reply("demo.chat.a1", 1500, 8500);
+    say("demo.chat.u2", 11000);
+    reply("demo.chat.a2", 12000, 16500);
+    // A message sent while the agent is busy waits as `queued` until omp reports it.
+    at(20000, () => store.addChat({ id: `d${lap}-q`, role: "user", text: ct("demo.chat.u3"), pending: "queued" }));
+    at(25000, () => store.updateChat(`d${lap}-q`, { pending: null }));
+    reply("demo.chat.a3", 26000, 29000);
+  }
+
   private build(): void {
     const store = this.store;
     const r = this.rand;
@@ -345,6 +377,7 @@ export class DemoDriver {
       this.feed(MAIN_AGENT, "message", t("demo.planReady"));
     });
 
+    this.buildChat(at, lap);
     // subagents
     const sims: Sim[] = [];
     const spawn = (o: SpawnOpts): Sim => {

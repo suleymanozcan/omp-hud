@@ -2,7 +2,7 @@
 // Default view: the dock, a short panel next to the editor (you keep typing). Commands: /hud (dock on/off),
 // /hud full, /hud size, /hud place, /hud demo [off|full], /hud compact [on|off], /hud status [on|off],
 // /hud pad [0-3], /hud lang [tr|en|auto], /hud doctor, /hud help.
-import type { ExtensionAPI, ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, RegisteredCommand, Theme } from "@oh-my-pi/pi-coding-agent";
 import type { Component, TUI } from "@oh-my-pi/pi-tui";
 import pkg from "./package.json" with { type: "json" };
 import { attachCollector } from "./src/collector.ts";
@@ -12,8 +12,10 @@ import { FullHud } from "./src/components/full-hud.ts";
 import { PaddedComponent } from "./src/components/padded.ts";
 import { DemoDriver } from "./src/demo.ts";
 import { createStore } from "./src/store.ts";
+import type { ChatBridge } from "./src/chat.ts";
 import type { HudStore, HudTheme } from "./src/types.ts";
 import { getLang, isLangAuto, setLang, t } from "./src/i18n.ts";
+import { ct } from "./src/chat-i18n.ts";
 import { getPlace, getSize, parsePlace, parseSize, setPlace, setSize } from "./src/layout-settings.ts";
 import { compactIsAnimated } from "./src/render/compact.ts";
 import { dockIsAnimated } from "./src/render/dock.ts";
@@ -407,11 +409,12 @@ function startDemo(ctx: ExtensionContext, store: HudStore): boolean {
 
 const FULL_OVERLAY = { anchor: "top-left", width: "100%", maxHeight: "100%", margin: 0 } as const;
 
-/** Full-screen HUD; `target` is the real or the demo store. `onClosed` is called on close. */
+/** Full-screen HUD; `target` is the real or the demo store, `bridge` connects its prompt. `onClosed` is called on close. */
 async function openFull(
   ctx: ExtensionContext,
   real: HudStore,
   target: HudStore,
+  bridge: ChatBridge,
   onClosed?: () => void,
 ): Promise<void> {
   if (hud.fullOpen) return;
@@ -426,7 +429,8 @@ async function openFull(
       makeTheme(theme),
       () => tui.requestRender(),
       () => done(undefined),
-      () => Math.max(1, rowsOf(tui) - getPad()), // keep the last row(s) free: the hint line must stay visible
+      () => Math.max(1, rowsOf(tui) - getPad()), // keep the last row(s) free: the prompt hint must stay visible
+      bridge,
     );
   };
   try {
@@ -454,14 +458,14 @@ async function openFull(
   }
 }
 
-async function runFullDemo(ctx: ExtensionContext, real: HudStore): Promise<void> {
+async function runFullDemo(ctx: ExtensionContext, real: HudStore, bridgeFor: (target: HudStore) => ChatBridge): Promise<void> {
   const demoStore = createStore();
   const driver = new DemoDriver(demoStore, {
     setInterval: (fn, ms) => ctx.setInterval(fn, ms),
     clearTimer: (handle) => ctx.clearTimer(handle),
   });
   driver.start();
-  await openFull(ctx, real, demoStore, () => driver.stop());
+  await openFull(ctx, real, demoStore, bridgeFor(demoStore), () => driver.stop());
   driver.stop(); // stop for sure even if openFull returned without ever opening
 }
 
@@ -610,7 +614,7 @@ export default function hudExtension(pi: ExtensionAPI): void {
     }
   });
 
-  pi.registerCommand("hud", {
+  const hudCommand: RegisteredCommand = {
     description: t("cmd.description"),
     handler: async (args, ctx) => {
       if (!isTui(ctx)) return;
@@ -636,7 +640,7 @@ export default function hudExtension(pi: ExtensionAPI): void {
             return;
           }
           case "full":
-            await openFull(ctx, store, store);
+            await openFull(ctx, store, store, makeBridge(ctx, store));
             return;
           case "size": {
             if (arg !== "") {
@@ -673,7 +677,7 @@ export default function hudExtension(pi: ExtensionAPI): void {
           }
           case "demo": {
             if (arg === "full") {
-              await runFullDemo(ctx, store);
+              await runFullDemo(ctx, store, (target) => makeBridge(ctx, target));
               ctx.ui.notify(t("cmd.demoClosed"), "info");
               return;
             }
@@ -783,9 +787,60 @@ export default function hudExtension(pi: ExtensionAPI): void {
         ctx.ui.notify(t("cmd.error", { err: errText(e) }), "error");
       }
     },
-  });
+  };
+  pi.registerCommand("hud", hudCommand);
+
+  /** What the prompt of the full-screen HUD can do: send text to omp (real store) or play along (demo store), and run `/hud ...` locally. */
+  function makeBridge(ctx: ExtensionContext, target: HudStore): ChatBridge {
+    const demo = target !== store;
+    const say = (text: string): void => {
+      target.addChat({ role: "system", text });
+    };
+    return {
+      send(text, steer) {
+        if (demo) {
+          target.addChat({ role: "user", text });
+          say(ct("chat.demoReply"));
+          return;
+        }
+        const idle = typeof ctx.isIdle === "function" ? ctx.isIdle() : true;
+        const id = target.addChat({ role: "user", text, pending: idle ? "sending" : steer ? "steer" : "queued" });
+        try {
+          // Idle: start a turn. Busy: queue behind the running turn (followUp) or steer it (Alt+Enter).
+          if (idle) pi.sendUserMessage(text);
+          else pi.sendUserMessage(text, { deliverAs: steer ? "steer" : "followUp" });
+        } catch (e) {
+          target.removeChat(id);
+          say(ct("chat.sendFailed", { err: errText(e) }));
+        }
+      },
+      command(args) {
+        const [sub = "", arg = ""] = args.trim().toLowerCase().split(/\s+/);
+        if (sub === "full" || (sub === "demo" && arg === "full")) {
+          say(ct("chat.alreadyFull"));
+          return;
+        }
+        // The command's notifications would be hidden behind the full-screen overlay: they go into the conversation panel.
+        const ui = new Proxy(ctx.ui, {
+          get(obj, prop) {
+            if (prop === "notify") return (message: string) => say(message);
+            const v = Reflect.get(obj, prop, obj) as unknown;
+            return typeof v === "function" ? v.bind(obj) : v;
+          },
+        });
+        const local = new Proxy(ctx, {
+          get(obj, prop) {
+            if (prop === "ui") return ui;
+            const v = Reflect.get(obj, prop, obj) as unknown;
+            return typeof v === "function" ? v.bind(obj) : v;
+          },
+        });
+        void hudCommand.handler(args, local);
+      },
+    };
+  }
 }
 
 function helpText(): string {
-  return t("cmd.help", { pad: getPad(), size: getSize(), place: getPlace() });
+  return `${t("cmd.help", { pad: getPad(), size: getSize(), place: getPlace() })}\n${ct("chat.help")}`;
 }
