@@ -90,6 +90,21 @@ export function matchesKey(data: string, keyId: string): boolean {
     left: ["\x1b[D", "\x1bOD"],
     "ctrl+c": ["\x03"],
     "shift+tab": ["\x1b[Z"],
+    backspace: ["\x7f", "\b"],
+    delete: ["\x1b[3~"],
+    home: ["\x1b[H", "\x1bOH", "\x1b[1~"],
+    end: ["\x1b[F", "\x1bOF", "\x1b[4~"],
+    pageup: ["\x1b[5~"],
+    pagedown: ["\x1b[6~"],
+    "ctrl+up": ["\x1b[1;5A"],
+    "ctrl+down": ["\x1b[1;5B"],
+    "ctrl+end": ["\x1b[1;5F"],
+    "alt+enter": ["\x1b\r"],
+    "ctrl+a": ["\x01"],
+    "ctrl+e": ["\x05"],
+    "ctrl+k": ["\x0b"],
+    "ctrl+u": ["\x15"],
+    "ctrl+w": ["\x17"],
   };
   const k = keyId.toLowerCase();
   return map[k] ? map[k]!.includes(data) : data === keyId;

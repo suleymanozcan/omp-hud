@@ -1,14 +1,19 @@
-// Full-screen HUD layout: header, panels (orbit | feed + tasks), token strip, hint row.
+// Full-screen HUD layout: header, panels (orbit | conversation + thin feed + task summary), token strip, prompt box.
 import type { HudNode, HudState, HudTheme } from "../types.ts";
+import type { ChatView } from "../chat.ts";
+import { ct } from "../chat-i18n.ts";
 import { padEnd, trunc, vw } from "../util/text.ts";
 import { t } from "../i18n.ts";
 import { coreColor, coreLabel, fmtClock, fmtCost, fmtDur, fmtNum, nodeStatusColor, nodeStatusLabel, spinnerFor } from "./fmt.ts";
 import { renderFeed } from "./feed.ts";
+import { renderChat } from "./chat.ts";
 import { renderTasks } from "./tasks.ts";
 import { renderTokens } from "./tokens.ts";
 
 export const MIN_WIDTH = 50;
 export const MIN_HEIGHT = 14;
+const PROMPT_H = 3; // rule + input row + hint row
+const MIN_CHAT_H = 6; // frame rows the conversation always keeps
 
 export type OrbitRenderer = (
   state: HudState,
@@ -24,6 +29,14 @@ export interface ComposeOptions {
   orbit: OrbitRenderer;
   /** tok/s sparkline history (oldest first). */
   history?: readonly number[];
+  /** Scroll state of the conversation panel (read and updated by the renderer). */
+  chatView?: ChatView;
+  /** The prompt row, already rendered by the input component (exactly `width` cells). */
+  inputRow?: string;
+  /** False while the prompt holds text (the hint changes). */
+  inputEmpty?: boolean;
+  /** A transient message (command output, warning) shown in place of the key hint. */
+  flash?: { text: string; level: "info" | "warning" | "error" };
 }
 
 /** Thin-line frame; `title` is embedded in the top edge. Exactly `w` x `h` cells. */
@@ -138,13 +151,21 @@ function headerRow(state: HudState, width: number, theme: HudTheme): string {
   return left + " ".repeat(width - vw(left) - vw(right)) + right;
 }
 
-function hintRow(opts: ComposeOptions, width: number, theme: HudTheme): string {
-  const text = opts.detail && opts.selectedId
-    ? t("hint.detail")
-    : opts.selectedId
-      ? t("hint.selected")
-      : t("hint.base");
-  return padEnd(" " + theme.fg("dim", text), width);
+/** Prompt box: a thin rule, the input row (rendered by the owner) and the hint row (or a transient message). */
+function promptBox(opts: ComposeOptions, width: number, theme: HudTheme): string[] {
+  let hint: string;
+  if (opts.flash) hint = theme.fg(opts.flash.level === "info" ? "muted" : opts.flash.level, opts.flash.text);
+  else {
+    const key = opts.detail && opts.selectedId
+      ? "chat.hint.detail"
+      : opts.selectedId
+        ? "chat.hint.selected"
+        : opts.inputEmpty === false
+          ? "chat.hint.typing"
+          : "chat.hint.base";
+    hint = theme.fg("dim", ct(key));
+  }
+  return [theme.fg("dim", "─".repeat(width)), padEnd(opts.inputRow ?? "", width), padEnd(" " + hint, width)];
 }
 
 function tooSmall(width: number, height: number, theme: HudTheme): string[] {
@@ -166,7 +187,7 @@ function joinColumns(left: readonly string[], right: readonly string[]): string[
 export function composeHud(state: HudState, width: number, height: number, theme: HudTheme, opts: ComposeOptions): string[] {
   if (width < MIN_WIDTH || height < MIN_HEIGHT) return tooSmall(width, height, theme);
 
-  const bodyH = height - 2;
+  const bodyH = height - 1 - PROMPT_H; // header above, prompt box below
   const selected = opts.selectedId !== undefined ? state.nodes.find((n) => n.id === opts.selectedId) : undefined;
   const showDetail = opts.detail === true && selected !== undefined;
 
@@ -188,32 +209,53 @@ export function composeHud(state: HudState, width: number, height: number, theme
       h,
       theme,
     );
-  const feedOrDetail = (w: number, h: number): string[] =>
-    showDetail
-      ? panel((iw, ih) => renderDetail(selected, state, iw, ih, theme), w, h, theme)
-      : panel((iw, ih) => renderFeed(state, iw, ih, theme), w, h, theme);
+  const detailPanel = (w: number, h: number): string[] =>
+    selected ? panel((iw, ih) => renderDetail(selected, state, iw, ih, theme), w, h, theme) : orbitPanel(w, h);
+  const feedPanel = (w: number, h: number): string[] => panel((iw, ih) => renderFeed(state, iw, ih, theme), w, h, theme);
   const tasksPanel = (w: number, h: number): string[] => panel((iw, ih) => renderTasks(state, iw, ih, theme), w, h, theme);
-
-  const feedTasks = (w: number, h: number, feedShare: number): string[] => {
-    if (h < 8) return feedOrDetail(w, h);
-    const feedH = Math.min(h - 4, Math.max(4, Math.round(h * feedShare)));
-    return [...feedOrDetail(w, feedH), ...tasksPanel(w, h - feedH)];
+  const chatPanel = (w: number, h: number): string[] => {
+    const lines = renderChat(state, Math.max(0, w - 2), Math.max(0, h - 2), theme, opts.chatView);
+    const behind = opts.chatView !== undefined && !opts.chatView.follow && opts.chatView.offset > 0;
+    const title =
+      theme.bold(theme.fg("accent", ct("chat.title"))) +
+      (behind ? theme.fg("warning", ` ${ct("chat.newBelow")}`) : "");
+    return frame(title, lines, w, h, theme);
   };
 
   let main: string[];
-  if (width >= 80) {
-    const leftW = Math.floor(width * (width >= 110 ? 0.45 : 0.4));
-    main = joinColumns(orbitPanel(leftW, mainH), feedTasks(width - leftW, mainH, width >= 110 ? 0.55 : 0.5));
+  if (width >= 110) {
+    // Left: orbit (details replace it when the column is tall enough). Right: conversation, thin feed, task summary.
+    const leftW = 34;
+    const rightW = width - leftW;
+    let tasksH = mainH >= 22 ? 4 : mainH >= 16 ? 3 : 0;
+    let feedH = mainH >= 26 ? 6 : mainH >= 16 ? 5 : mainH >= 12 ? 4 : 0;
+    if (mainH - feedH - tasksH < MIN_CHAT_H) tasksH = 0;
+    if (mainH - feedH - tasksH < MIN_CHAT_H) feedH = 0;
+    const chatH = mainH - feedH - tasksH;
+    const detailInLeft = showDetail && mainH >= 12;
+    const left = detailInLeft ? detailPanel(leftW, mainH) : orbitPanel(leftW, mainH);
+    const right = [
+      ...(showDetail && !detailInLeft ? detailPanel(rightW, chatH) : chatPanel(rightW, chatH)),
+      ...(feedH > 0 ? feedPanel(rightW, feedH) : []),
+      ...(tasksH > 0 ? tasksPanel(rightW, tasksH) : []),
+    ];
+    main = joinColumns(left, right);
   } else {
-    // 40%; the orbit scene wants at least 10 inner rows (frame +2), give that much when there is room.
-    const orbitH = Math.max(4, Math.round(mainH * 0.4), Math.min(12, mainH - 8));
-    const lowerH = mainH - orbitH;
-    main = [...orbitPanel(width, orbitH), ...(lowerH >= 14 ? feedTasks(width, lowerH, 0.6) : feedOrDetail(width, lowerH))];
+    // Narrow: (medium widths) a small orbit on top, then the conversation and a thin feed.
+    const feedH = mainH >= 16 ? 4 : mainH >= 12 ? 3 : 0;
+    let orbitH = width >= 70 ? Math.round(mainH * 0.25) : 0;
+    if (orbitH < 8 || mainH - feedH - orbitH < MIN_CHAT_H + 2) orbitH = 0;
+    const chatH = mainH - feedH - orbitH;
+    main = [
+      ...(orbitH > 0 ? orbitPanel(width, orbitH) : []),
+      ...(showDetail ? detailPanel(width, chatH) : chatPanel(width, chatH)),
+      ...(feedH > 0 ? feedPanel(width, feedH) : []),
+    ];
   }
 
   const strip = framedStrip
     ? frame(theme.bold(theme.fg("accent", t("tok.title"))), tokenLines, width, stripH, theme)
     : tokenLines.map((l) => padEnd(" " + l, width));
 
-  return [headerRow(state, width, theme), ...main, ...strip, hintRow(opts, width, theme)];
+  return [headerRow(state, width, theme), ...main, ...strip, ...promptBox(opts, width, theme)];
 }
