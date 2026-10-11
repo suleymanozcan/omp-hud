@@ -348,7 +348,7 @@ function renderRight(state: HudState, width: number, height: number, theme: HudT
 function renderWide(state: HudState, width: number, height: number, theme: HudTheme): string[] {
   const orbitW = Math.min(ORBIT_COLS_MAX, Math.max(ORBIT_COLS_MIN, Math.round(width * ORBIT_SHARE)));
   // The orbit uses every dock row (a bigger scene reads better); the rule + title sit on top of the right block only.
-  const orbit = renderOrbitScene(state, orbitW, height, theme, { small: true, wide: true });
+  const orbit = renderOrbitScene(state, orbitW, height, theme);
   const right = renderRight(state, width - orbitW - ORBIT_GAP, height, theme);
   const gap = " ".repeat(ORBIT_GAP);
   const out: string[] = [];
