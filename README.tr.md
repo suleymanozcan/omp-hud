@@ -79,7 +79,12 @@ extensions:
 | `/hud demo` | Sahte olay akışıyla tam ekran HUD (gerçek oturum durumuna dokunmaz). |
 | `/hud compact on\|off` | Editörün altındaki kompakt widget'ı açar/kapatır (argümansız: tersine çevirir). |
 | `/hud lang tr\|en\|auto` | Arayüz dilini bu çalışma için değiştirir (kalıcı değildir); argümansız mevcut dili gösterir. |
+| `/hud status on\|off` | omp'nin durum metninde tek satırlık özet (`hud ○ hazır`, `hud ⠹ düşünüyor · 2 çalışıyor 1 bitti · giriş 12k çıkış 3k · bağlam 42%`); varsayılan açık; argümansız durumu gösterir. |
+| `/hud pad 0-3` | Kompakt widget ve tam ekran HUD için alt tarafta boş bırakılan satır (varsayılan 1, ortam `OMP_HUD_PAD`); argümansız değeri gösterir. |
+| `/hud doctor` | Tanı: sürüm, dil, mod, widget ve durum satırı durumu, terminal boyutu, mağaza, zamanlayıcı. Ortam dökümü yok (yalnız `OMP_HUD_LANG` ve `COLORTERM`). |
 | `/hud help` | Komut özetini gösterir. |
+
+Her komut kısa bir bildirimle yanıt verir (örneğin `Kompakt HUD: açık (editörün altında 1-3 satır)` ya da `zaten açık`).
 
 Tam ekrandaki tuşlar:
 
@@ -131,6 +136,9 @@ bun scripts/preview.ts --frames 2 --width 140 --height 40 --at 14,24 --compact -
 - omp günlüklerinde (`~/.omp/logs/`; adlandırılmış profil `~/.omp/profiles/<ad>/logs/` altına yazar) `Failed to load extension` arayın. Tipik nedenler: yanlış ya da taşınmış yol, sembolik bağlantı yerine yönlendirme dosyası (yukarıya bakın).
 - Renkler soluksa: terminalde `COLORTERM=truecolor` olmalıdır.
 - Yeniden boyutlandırmadan sonra tam ekran bozulursa: bir kez daha boyutlandırıp `/hud` komutunu yeniden verin.
+- Editörün altındaki widget görünmüyorsa: `/hud doctor` yazın. Widget durumunu (`bağlandı: evet` omp'nin widget'ı oluşturduğunu gösterir; `çizim` ve `son: genişlik G, N satır` ne çizdiğini gösterir), durum satırını, omp'nin gördüğü terminal boyutunu, mağazayı ve zamanlayıcıyı yazar. Model çağırmadan `/hud compact on` da denenebilir (bildirimle yanıtlar, açıksa `zaten açık` der).
+- Terminal penceresi alt satırları kırpıyorsa (bazı pencereler son bir iki satırı gizler): `/hud pad 2` (ya da ortamda `OMP_HUD_PAD=2`; 0-3, varsayılan 1) kompakt widget'ın altında o kadar boş satır bırakır ve tam ekran HUD'u o kadar satır kısaltır; böylece alt ipucu satırı görünür kalır.
+- Alt kısımda hâlâ bir şey yoksa: HUD omp'nin durum metnine de tek satırlık özet yazar (`hud ○ hazır`, anahtar `hud`; omp 18.8.9'da editör ve widget'ın altında tek satır olarak doğrulandı). Bu, widget'a bağlı değildir. `/hud status on` ile açın. Görünmüyorsa omp'nin `statusLine.showHookStatus` ayarının `false` olmadığına bakın.
 
 ## Geliştirme
 
@@ -149,6 +157,8 @@ src/store.ts             mağaza
 src/collector.ts         omp olaylarını mağazaya yazar
 src/demo.ts              /hud demo için sahte olay akışı
 src/i18n.ts              en / tr metinleri
+src/status-text.ts       durum çubuğu için tek satırlık düz metin özeti
+src/pad.ts               alt boşluk (`/hud pad`, `OMP_HUD_PAD`)
 src/render/              braille tuval, çekirdek, yörünge, akış, görev, token, yerleşim
 src/components/          FullHud (overlay), CompactHud (editörün altındaki widget)
 scripts/preview.ts       omp'siz önizleme (kareler / HTML / canlı)

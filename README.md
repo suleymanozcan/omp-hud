@@ -79,7 +79,12 @@ extensions:
 | `/hud demo` | Fullscreen HUD driven by a fake event stream (does not touch the real session state). |
 | `/hud compact on\|off` | Show or hide the compact widget below the editor (no argument: toggle). |
 | `/hud lang tr\|en\|auto` | Switch the UI language for this run (not persisted); no argument shows the current one. |
+| `/hud status on\|off` | One-line summary (`hud ○ ready`, `hud ⠹ thinking · 2 running 1 done · in 12k out 3k · ctx 42%`) in omp's status text, on by default; no argument shows the state. |
+| `/hud pad 0-3` | Blank rows kept free at the bottom of the compact widget and the fullscreen HUD (default 1, env `OMP_HUD_PAD`); no argument shows the value. |
+| `/hud doctor` | Diagnostics: version, language, mode, widget and status line state, terminal size, store, timer. No environment dump (only `OMP_HUD_LANG` and `COLORTERM`). |
 | `/hud help` | Print the command summary. |
+
+Every command answers with a short notification (for example `Compact HUD: on (1-3 lines below the editor)`, or `already on`).
 
 Keys in fullscreen:
 
@@ -131,6 +136,9 @@ bun scripts/preview.ts --frames 2 --width 140 --height 40 --at 14,24 --compact -
 - Look in the omp logs (`~/.omp/logs/`; a named profile logs to `~/.omp/profiles/<name>/logs/`) for `Failed to load extension`. Typical causes: a wrong or moved path, or a redirect file instead of a symlink (see above).
 - Faded colors: set `COLORTERM=truecolor` in your terminal.
 - Garbled fullscreen after a resize: resize once more and run `/hud` again.
+- The widget below the editor is not visible: run `/hud doctor`. It prints the widget state (`mounted: yes` means omp created it; `renders` and `last: width W, N lines` show what it drew), the status line, the terminal size as omp sees it, the store and the timer. Without a model call you can also check `/hud compact on` (it answers with a notification, `already on` if it was on).
+- Bottom rows are cut off by the terminal window (some windows hide the last row or two): `/hud pad 2` (or `OMP_HUD_PAD=2` in the environment; 0-3, default 1) keeps that many blank rows under the compact widget and makes the fullscreen HUD that many rows shorter, so its last hint line stays visible.
+- Still nothing at the bottom: the HUD also writes a one-line summary into omp's status text (`hud ○ ready`, key `hud`; verified on omp 18.8.9 as one line under the editor and widget). It does not depend on the widget. Turn it on with `/hud status on`. If it does not appear, check that omp's `statusLine.showHookStatus` is not `false`.
 
 ## Development
 
@@ -149,6 +157,8 @@ src/store.ts             store
 src/collector.ts         writes omp events into the store
 src/demo.ts              fake event stream for /hud demo
 src/i18n.ts              en / tr strings
+src/status-text.ts       one-line plain-text summary for the status bar
+src/pad.ts               bottom padding (`/hud pad`, `OMP_HUD_PAD`)
 src/render/              braille canvas, core, orbit, feed, tasks, tokens, layout
 src/components/          FullHud (overlay), CompactHud (widget below the editor)
 scripts/preview.ts       preview without omp (frames / HTML / live)
