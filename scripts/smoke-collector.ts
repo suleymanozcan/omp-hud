@@ -836,6 +836,66 @@ console.log("[chat: full screen component]");
   hud.dispose?.();
 }
 
+console.log("[full screen: orbit layout]");
+{
+  const s = createStore();
+  const t0 = Date.now();
+  s.setCoreStatus("thinking");
+  const kinds = ["running", "completed", "failed", "running"] as const;
+  ["explore", "scout", "task", "plan"].forEach((name, i) =>
+    s.upsertNode({ id: `x${i}`, name, status: kinds[i]!, startedAt: t0 - 5000, endedAt: i === 1 || i === 2 ? t0 : undefined, currentTool: i === 0 ? "grep" : undefined }),
+  );
+  s.addChat({ role: "assistant", text: "orbit layout answer" });
+  for (let i = 0; i < 12; i++) s.tickAnimation(100);
+  const shot = (w: number, h: number, keys: string[] = []): string[] => {
+    const hud = new FullHud(s, noTheme, () => {}, () => {}, () => h);
+    for (const k of keys) hud.handleInput(k);
+    const lines = hud.render(w).map(plain);
+    hud.dispose?.();
+    return lines;
+  };
+  const rowOf = (lines: string[], text: string): number => lines.findIndex((l) => l.includes(text));
+  const paneRows = (lines: string[], col: number): number => {
+    // frame rows of the pane whose left edge is at `col`: from its top edge to its bottom edge
+    const top = lines.findIndex((l) => [...l][col] === "╭");
+    const bottom = lines.findIndex((l, i) => i > top && [...l][col] === "╰");
+    return bottom - top + 1;
+  };
+
+  const wide = shot(200, 50);
+  check("200x50: the orbit pane is the left half, the conversation starts at column 100", [...wide[1]!][100] === "╭" && wide[1]!.indexOf("AGENT NET") < 8 && wide[1]!.indexOf("CHAT") > 100, wide[1]);
+  check("200x50: the orbit pane has the full panel height (43 rows)", paneRows(wide, 0) === 43, paneRows(wide, 0));
+  check("200x50: node labels show the agent name, a status icon and the tool / duration", wide.some((l) => /explore/.test(l)) && wide.some((l) => /grep 00:05/.test(l)) && wide.some((l) => /✓ scout/.test(l)) && wide.some((l) => /✗ task/.test(l)), wide.slice(10, 20));
+  check("200x50: the conversation, feed and tasks stay on the right half", rowOf(wide, "orbit layout answer") > 0 && wide.some((l) => l.includes("LIVE FEED")) && wide.some((l) => l.includes("TASKS")));
+  const selected = shot(200, 50, ["\t"]);
+  check("Tab highlights the node label with an arrow at the edge touching the node (none without a selection)", selected.some((l) => /[◂▸]/.test([...l].slice(0, 100).join(""))) && !wide.some((l) => /[◂▸]/.test([...l].slice(0, 100).join(""))));
+
+  const sizes = [[200, 50], [160, 45], [140, 40], [120, 36], [100, 30], [90, 28], [80, 24], [60, 20], [50, 14]] as const;
+  for (const [w, h] of sizes) {
+    const lines = shot(w, h);
+    check(`full screen ${w}x${h}: ${h} rows, every row exactly ${w} cells`, lines.length === h && lines.every((l) => [...l].length === w), [lines.length, lines.map((l) => [...l].length).filter((n) => n !== w)]);
+  }
+  const orbit120 = shot(120, 36);
+  check("120x36: the orbit is the left half too", [...orbit120[1]!][60] === "╭" && paneRows(orbit120, 0) === 29, [orbit120[1], paneRows(orbit120, 0)]);
+  const mid = shot(100, 30);
+  const midRows = paneRows(mid, 0);
+  check("100x30: the orbit sits on top (about 45% of the panel height), the conversation below it", rowOf(mid, "AGENT NET") === 1 && midRows >= 9 && midRows <= 13 && rowOf(mid, "CHAT") > midRows, [midRows, rowOf(mid, "CHAT")]);
+  for (const [w, h] of [[60, 20], [80, 24]] as const) {
+    const lines = shot(w, h);
+    check(`${w}x${h}: a narrow terminal still shows an orbit of at least 8 rows above the conversation`, paneRows(lines, 0) >= 8 && rowOf(lines, "CHAT") > rowOf(lines, "AGENT NET"), paneRows(lines, 0));
+  }
+  const det = shot(140, 40, ["\t", "\t", "\r"]);
+  check("details open below the orbit; the conversation stays visible", rowOf(det, "AGENT NET") === 1 && rowOf(det, "DETAILS") > rowOf(det, "AGENT NET") + 10 && det.some((l) => l.includes("orbit layout answer")), [rowOf(det, "AGENT NET"), rowOf(det, "DETAILS")]);
+  const detShort = shot(140, 30, ["\t", "\r"]);
+  check("on a short terminal the details replace the orbit, the conversation stays visible", rowOf(detShort, "DETAILS") === 1 && !detShort.some((l) => l.includes("AGENT NET")) && detShort.some((l) => l.includes("orbit layout answer")));
+
+  const empty = createStore();
+  const idleHud = new FullHud(empty, noTheme, () => {}, () => {}, () => 50);
+  const idle = idleHud.render(200).map(plain);
+  check("200x50 idle: no nodes shows the core with the status caption (no dead, crowded scene)", idle.some((l) => l.includes("main agent · ready")) && !idle.some((l) => /[✓✗]/.test(l.slice(0, 100))), idle.slice(44, 46));
+  idleHud.dispose?.();
+}
+
 console.log("[chat: index.ts bridge]");
 {
   const before = idx.sent.length;
@@ -868,7 +928,8 @@ console.log("[chat: index.ts bridge]");
   const opened = M.custom.opened;
   type("/hud help");
   full.handleInput("\r");
-  check("/hud help runs inside the HUD: output in the panel, no notification behind the overlay", screen().includes("Only /hud ... commands run inside the HUD.") && M.notes.length === notes, [M.notes.length, notes]);
+  const chatText = screen().split("\n").map((l) => [...l].slice(70).join("").replace(/^│|│$/g, "").trim()).join(" ").replace(/\s+/g, " "); // right half, wrapped lines joined
+  check("/hud help runs inside the HUD: output in the panel, no notification behind the overlay", chatText.includes("Only /hud ... commands run inside the HUD.") && M.notes.length === notes, [M.notes.length, notes]);
   type("/hud full");
   full.handleInput("\r");
   check("/hud full inside the HUD says so and does not open a second one", screen().includes("already in full screen") && M.custom.opened === opened);
