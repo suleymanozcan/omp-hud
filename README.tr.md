@@ -15,7 +15,7 @@
 - Araç çağrıları, alt ajan başlangıç/bitişleri, yeniden denemeler ve bağlam sıkıştırmasından oluşan **canlı akış**.
 - İlerlemesiyle birlikte **görevler** (todo listesi).
 - **Token göstergeleri**: giriş / çıkış / önbellek tokenları, bağlam penceresi doluluğu (%), saniyedeki token (tok/s) ve maliyet.
-- Editörün üstünde **dock** (6 / 9 / 12 satır); oturum başında açıktır: yazarken ve cevap okurken HUD görünür kalır.
+- Editörün üstünde **dock** (small 8 / medium 12 / large 16 satır, varsayılan large); oturum başında açıktır: yazarken ve cevap okurken HUD görünür kalır.
 - `/hud full` ile **tam ekran** kip (alternatif ekran); çıkınca normal ekran bozulmadan geri gelir.
 - **Kompakt panel** (`/hud compact on`): editörün altında eski 1-3 satırlık görünüm.
 - **`/hud demo`**: sahte olay akışı (yaklaşık 45 sn'lik döngü); tek token harcamadan her şeyi görürsünüz.
@@ -25,11 +25,21 @@
 
 ## Dock
 
-Dock, editörün hemen üstünde duran kısa bir panel (6, 9 ya da 12 satır; terminal yüksekliğinin en çok %40'ı). Böylece HUD görünürken prompt yazmaya ve cevapları okumaya devam edebilirsin. Tam ekran katmanın aksine odağı almaz. Küçük animasyonlu çekirdeği ve alt ajan yörüngesini (çalışan düğümler hareket eder, biten yeşil, hata veren kırmızı), canlı akışın son satırlarını, aktif görevi ve token satırını gösterir. 70 sütunun altında yörünge yerine kompakt durum bloğu ve akışın son satırları gelir. Dock satırlarını üstündeki konuşma alanından alır; kısa terminallerde küçük tut. Komutlar: `/hud help`.
+![Dock: solda eliptik yörünge sahnesi ve çekirdek, sağda canlı akış, görevler ve token göstergeleri](docs/img/hud-dock.tr.png)
 
-**Dock neden varsayılan?** Tam ekran HUD ekranın tamamını kaplar; açıkken ajana yazamaz, cevapları okuyamazsınız. 1-3 satırlık kompakt panel ise ekranın altında kolayca kaybolur. Dock çalıştığınız yerde (prompt'un üstünde) görünür kalır, son satırları gizleyen pencerelerde kırpılmaz ve yer gerektiğinde `/hud` ile gizlenir. `/hud size small` (6 satır) en az yer kaplayan ayardır; `OMP_HUD_SIZE=small` bunu varsayılan yapar.
+*200 sütunluk demo karesi (`/hud demo`), HTML önizlemeden üretildi; braille gerçek terminalde daha yoğun görünür.*
 
-omp'siz önizleme: `bun scripts/preview.ts --dock --size medium --width 130 --rows 40 --at 3,14,24,36`.
+Dock, editörün hemen üstünde duran bir panel. Böylece HUD görünürken prompt yazmaya ve cevapları okumaya devam edebilirsin. Tam ekran katmanın aksine odağı almaz. Boyutlar: **small 8, medium 12, large 16 satır** (varsayılan large); terminal yüksekliğinin en çok %45'ini alır (en az 4 satır; 20 satırdan kısa terminallerde 4-6 satıra iner).
+
+- **Geniş terminal kullanılır.** 70 sütundan itibaren yörünge sahnesi genişliğin %38'ini (28-72 sütun) alır: çekirdek yuvarlak kalır, yörüngeler alanın tamamını dolduran elipslerdir ve alt ajan düğümleri üzerinde durur (çalışan düğüm atar, biten yeşil, hata veren kırmızı). 96 sütundan itibaren sağ taraf canlı akış ile görev ve token göstergeleri sütununa ayrılır. 70 sütunun altında yörünge yerine kompakt durum bloğu ve akışın son satırları gelir.
+- **Boştayken de canlıdır.** Dinlenen çekirdek parlak, nefes alan bir "göz"dür; yörüngelerde birkaç soluk yer tutucu kıvılcım döner (düğüm değildir, gerçek düğüm gelince kaybolur), çekirdeğin altındaki kısa etiket ana ajanın ne yaptığını söyler; sağ blok ana ajanın son olaylarını (yoksa `/hud demo`, `/hud size`, `/hud help` ipucunu), ilk açık görevi ve token toplamlarını gösterir (ilk istekten önce `henüz token yok`). Düşünüyor, yazıyor, araç, hata ve bitti durumlarının her birinin kendi çekirdek animasyonu vardır; dock boyutunda da ayırt edilir.
+- **Görevler:** aktif görev önce, sonra bekleyenler gelir; engelli görevler en sona düşer (başlıkta `2 engelli`). Uzun bir engelli listesi sıradaki yapılabilir işi gizlemez.
+
+Dock satırlarını üstündeki konuşma alanından alır; kısa terminallerde `/hud size small` (ya da `OMP_HUD_SIZE=small`) kullan. Boştaki dock saniyede yaklaşık 4, meşgul dock yaklaşık 8 kez yenilenir. Komutlar: `/hud help`.
+
+**Dock neden varsayılan?** Tam ekran HUD ekranın tamamını kaplar; açıkken ajana yazamaz, cevapları okuyamazsınız. 1-3 satırlık kompakt panel ise ekranın altında kolayca kaybolur. Dock çalıştığınız yerde (prompt'un üstünde) görünür kalır, son satırları gizleyen pencerelerde kırpılmaz ve yer gerektiğinde `/hud` ile gizlenir.
+
+omp'siz önizleme: `bun scripts/preview.ts --dock --size large --width 200 --rows 45 --at 3,14,24,36` (demo yerine dinlenen dock için `--idle empty|tasks|used`, HTML dosyası için `--html out.html`).
 
 ## Kurulum
 
@@ -84,9 +94,9 @@ extensions:
 
 | Komut | Etki |
 | --- | --- |
-| `/hud` | Dock'u açar/kapatır (varsayılan görünüm; oturum başında açık): editörün yanında 6 / 9 / 12 satırlık panel, odağı almaz, yazmaya devam edersiniz. |
+| `/hud` | Dock'u açar/kapatır (varsayılan görünüm; oturum başında açık): editörün yanında 8 / 12 / 16 satırlık panel, odağı almaz, yazmaya devam edersiniz. |
 | `/hud full` | Tam ekran HUD (eski `/hud`; son satırı `/hud pad` boş bırakır). |
-| `/hud size small\|medium\|large` | Dock boyutu (varsayılan medium, ortam `OMP_HUD_SIZE`); argümansız boyutu ve bu terminal yüksekliğinde aldığı satırı gösterir. |
+| `/hud size small\|medium\|large` | Dock boyutu: 8 / 12 / 16 satır (varsayılan large, ortam `OMP_HUD_SIZE`); argümansız boyutu ve bu terminal yüksekliğinde aldığı satırı gösterir. |
 | `/hud place above\|below` | Dock editörün üstünde (varsayılan) ya da altında (ortam `OMP_HUD_PLACE`); açıksa yeniden kurulur. |
 | `/hud demo` | Dock'ta sahte olay akışı (gerekirse demo için dock'u açar; yeniden ya da `/hud demo off` durdurur). Gerçek oturum durumuna dokunmaz. |
 | `/hud demo full` | Aynı sahte akış tam ekran HUD'da. |
@@ -149,7 +159,7 @@ bun scripts/preview.ts --frames 2 --width 140 --height 40 --at 14,24 --compact -
 - omp günlüklerinde (`~/.omp/logs/`; adlandırılmış profil `~/.omp/profiles/<ad>/logs/` altına yazar) `Failed to load extension` arayın. Tipik nedenler: yanlış ya da taşınmış yol, sembolik bağlantı yerine yönlendirme dosyası (yukarıya bakın).
 - Renkler soluksa: terminalde `COLORTERM=truecolor` olmalıdır.
 - Yeniden boyutlandırmadan sonra tam ekran bozulursa: bir kez daha boyutlandırıp `/hud full` komutunu yeniden verin.
-- HUD görünmüyorsa: `/hud doctor` yazın. `dock:` satırı açık/kapalı durumunu, boyutu ve alması gereken satır sayısını, son `setWidget` çağrısının sonucunu, `bağlandı: evet` (omp widget'ı oluşturdu) bilgisini ve son çizilen boyutu (`çizim N (son GxS)`) gösterir. `/hud` komutunu da deneyin (bildirimle yanıtlar: `HUD dock: açık (medium, editörün üstünde)` ya da `kapalı`) ve terminalin en az yaklaşık 20 satır olduğundan emin olun (daha kısa terminallerde dock 4 satıra iner).
+- HUD görünmüyorsa: `/hud doctor` yazın. `dock:` satırı açık/kapalı durumunu, boyutu ve alması gereken satır sayısını, son `setWidget` çağrısının sonucunu, `bağlandı: evet` (omp widget'ı oluşturdu) bilgisini ve son çizilen boyutu (`çizim N (son GxS)`) gösterir. `/hud` komutunu da deneyin (bildirimle yanıtlar: `HUD dock: açık (large, editörün üstünde)` ya da `kapalı`) ve terminalin en az yaklaşık 20 satır olduğundan emin olun (daha kısa terminallerde dock 4-6 satıra iner).
 - Terminal penceresi alt satırları kırpıyorsa (bazı pencereler son bir iki satırı gizler): dock editörün üstünde durduğu için etkilenmez. Editörün altındaki görünümler etkilenir: `/hud place below`, `/hud compact on` ve tam ekran HUD. Bunlar için `/hud pad 2` (ya da `OMP_HUD_PAD=2`; 0-3, varsayılan 1) panelin altında o kadar boş satır bırakır ve tam ekran HUD'u o kadar satır kısaltır; böylece alt ipucu satırı görünür kalır. Dock editörün üstündeyken boşluk uygulanmaz.
 - Alt kısımda hâlâ bir şey yoksa: HUD omp'nin durum metnine de tek satırlık özet yazar (`hud ○ hazır`, anahtar `hud`; omp 18.8.9'da editörün altında tek satır olarak doğrulandı). Bu, widget'lara bağlı değildir. `/hud status on` ile açın. Görünmüyorsa omp'nin `statusLine.showHookStatus` ayarının `false` olmadığına bakın.
 

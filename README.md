@@ -15,7 +15,7 @@ Terminal HUD for [oh-my-pi](https://github.com/can1357/oh-my-pi) (`omp`): an ani
 - **Live feed** of tool calls, sub-agent starts and finishes, retries and context compaction.
 - **Tasks**: your todo list with progress.
 - **Token gauges**: input / output / cache tokens, context window usage in %, tokens per second and cost.
-- **Dock** above the editor (6 / 9 / 12 rows), on from the start of a session: the HUD stays visible while you type and read answers.
+- **Dock** above the editor (small 8 / medium 12 / large 16 rows, large by default), on from the start of a session: the HUD stays visible while you type and read answers.
 - **Fullscreen mode** with `/hud full`, on the alternate screen; the normal screen is restored on exit.
 - **Compact panel** (`/hud compact on`): the older 1-3 row view below the editor.
 - **`/hud demo`**: a fake event stream (about 45 s loop) so you can see everything without spending a token.
@@ -25,11 +25,21 @@ Terminal HUD for [oh-my-pi](https://github.com/can1357/oh-my-pi) (`omp`): an ani
 
 ## Dock
 
-The dock is a short panel (6, 9 or 12 rows; never more than 40% of the terminal height) that sits right above the editor, so you can keep typing prompts and reading answers while the HUD stays visible. Unlike the fullscreen overlay it does not take focus. It shows a small animated core with the sub-agent orbit (running nodes move, finished ones turn green, failed ones red), the latest live-feed lines, the active task and a token line. Below 70 columns the orbit is replaced by a compact status block plus the tail of the feed. The dock takes its rows from the transcript above it, so keep it small on short terminals. Commands: see `/hud help`.
+![Dock: elliptic orbit scene with the core on the left, live feed, tasks and token gauges on the right](docs/img/hud-dock.png)
 
-**Why the dock is the default.** The fullscreen HUD covers the whole screen, so you cannot type to the agent or read its answers while it is open, and the 1-3 row compact panel is easy to lose at the bottom of the screen. The dock stays visible where you work (above the prompt), is not clipped by windows that hide the last rows, and can be hidden with `/hud` when you need the space. `/hud size small` (6 rows) is the least intrusive setting; `OMP_HUD_SIZE=small` makes it the default.
+*Demo frame at 200 columns (`/hud demo`), rendered from the HTML preview; braille looks denser in a real terminal.*
 
-Preview without omp: `bun scripts/preview.ts --dock --size medium --width 130 --rows 40 --at 3,14,24,36`.
+The dock is a panel that sits right above the editor, so you can keep typing prompts and reading answers while the HUD stays visible. Unlike the fullscreen overlay it does not take focus. Sizes: **small 8, medium 12, large 16 rows** (large is the default); it never takes more than 45% of the terminal height (at least 4 rows; on terminals shorter than 20 rows it shrinks to 4-6 rows).
+
+- **Wide terminals are used.** From 70 columns the orbit scene takes 38% of the width (28-72 columns): the core stays round while the orbits are ellipses that fill the whole area, and the sub-agent nodes sit on them (running nodes pulse, finished ones are green, failed ones red). From 96 columns on the right side splits into the live feed and a column with tasks and token gauges. Below 70 columns the orbit is replaced by a compact status block plus the tail of the feed.
+- **It is alive when nothing runs.** The resting core is a bright breathing "eye"; a few dim placeholder sparkles drift on the orbits (they are not nodes and disappear when real nodes arrive), a short caption under the core says what the main agent is doing, and the right side shows the last events of the main agent (or a tip line with `/hud demo`, `/hud size`, `/hud help`), the first open task and the token totals (`no tokens yet` before the first request). Thinking, streaming, tool, error and done have their own core animation, also at dock size.
+- **Tasks:** the active task comes first, then the pending ones; blocked tasks come last (`2 blocked` in the header), so a long list of blocked items does not hide what you can do next.
+
+The dock takes its rows from the transcript above it; use `/hud size small` (or `OMP_HUD_SIZE=small`) on short terminals. The idle dock redraws about 4 times per second, a busy one about 8. Commands: see `/hud help`.
+
+**Why the dock is the default.** The fullscreen HUD covers the whole screen, so you cannot type to the agent or read its answers while it is open, and the 1-3 row compact panel is easy to lose at the bottom of the screen. The dock stays visible where you work (above the prompt), is not clipped by windows that hide the last rows, and can be hidden with `/hud` when you need the space.
+
+Preview without omp: `bun scripts/preview.ts --dock --size large --width 200 --rows 45 --at 3,14,24,36` (add `--idle empty|tasks|used` for a resting dock instead of the demo, `--html out.html` for an HTML file).
 
 ## Install
 
@@ -84,9 +94,9 @@ extensions:
 
 | Command | Effect |
 | --- | --- |
-| `/hud` | Show or hide the dock (default view; on at session start): a 6 / 9 / 12 row panel next to the editor, no focus taken, you keep typing. |
+| `/hud` | Show or hide the dock (default view; on at session start): an 8 / 12 / 16 row panel next to the editor, no focus taken, you keep typing. |
 | `/hud full` | The fullscreen HUD (the old `/hud`; the last row is kept free by `/hud pad`). |
-| `/hud size small\|medium\|large` | Dock size (default medium, env `OMP_HUD_SIZE`); no argument shows it and the rows it takes at this terminal height. |
+| `/hud size small\|medium\|large` | Dock size: 8 / 12 / 16 rows (default large, env `OMP_HUD_SIZE`); no argument shows it and the rows it takes at this terminal height. |
 | `/hud place above\|below` | Dock above (default) or below the editor (env `OMP_HUD_PLACE`); the dock is re-installed when open. |
 | `/hud demo` | A fake event stream in the dock (opens it for the demo if needed; run it again or `/hud demo off` to stop). The real session state is not touched. |
 | `/hud demo full` | The same fake stream in the fullscreen HUD. |
@@ -149,7 +159,7 @@ bun scripts/preview.ts --frames 2 --width 140 --height 40 --at 14,24 --compact -
 - Look in the omp logs (`~/.omp/logs/`; a named profile logs to `~/.omp/profiles/<name>/logs/`) for `Failed to load extension`. Typical causes: a wrong or moved path, or a redirect file instead of a symlink (see above).
 - Faded colors: set `COLORTERM=truecolor` in your terminal.
 - Garbled fullscreen after a resize: resize once more and run `/hud full` again.
-- The HUD is not visible: run `/hud doctor`. The `dock:` line shows whether it is on, its size and the rows it should take, the result of the last `setWidget` call, `mounted: yes` (omp created the widget) and what it last drew (`renders N (last WxH)`). Also check `/hud` (it answers with a notification: `HUD dock: on (medium, above the editor)` or `off`), and that the terminal is at least about 20 rows tall (on shorter terminals the dock shrinks to 4 rows).
+- The HUD is not visible: run `/hud doctor`. The `dock:` line shows whether it is on, its size and the rows it should take, the result of the last `setWidget` call, `mounted: yes` (omp created the widget) and what it last drew (`renders N (last WxH)`). Also check `/hud` (it answers with a notification: `HUD dock: on (large, above the editor)` or `off`), and that the terminal is at least about 20 rows tall (on shorter terminals the dock shrinks to 4-6 rows).
 - Bottom rows are cut off by the terminal window (some windows hide the last row or two): the dock sits above the editor, so it is not affected. Views below the editor are: `/hud place below`, `/hud compact on` and the fullscreen HUD. For those, `/hud pad 2` (or `OMP_HUD_PAD=2`; 0-3, default 1) keeps that many blank rows under the panel and makes the fullscreen HUD that many rows shorter, so its last hint line stays visible. Padding is not applied to the dock when it is above the editor.
 - Still nothing at the bottom: the HUD also writes a one-line summary into omp's status text (`hud ○ ready`, key `hud`; verified on omp 18.8.9 as one line under the editor). It does not depend on the widgets. Turn it on with `/hud status on`. If it does not appear, check that omp's `statusLine.showHookStatus` is not `false`.
 
