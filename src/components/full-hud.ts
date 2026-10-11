@@ -6,7 +6,7 @@ import { newChatView, type ChatBridge } from "../chat.ts";
 import { ct } from "../chat-i18n.ts";
 import { composeHud, type ComposeOptions } from "../render/layout.ts";
 import { getLang } from "../i18n.ts";
-import { renderOrbitScene } from "../render/orbit-scene.ts";
+import { renderFullScene } from "../render/full-scene.ts";
 import type { HudStore, HudTheme } from "../types.ts";
 import { InputLine } from "./input-line.ts";
 
@@ -111,7 +111,7 @@ export class FullHud implements Component {
     const opts: ComposeOptions = {
       selectedId: this.selectedId,
       detail: this.detail,
-      orbit: renderOrbitScene,
+      orbit: renderFullScene,
       history: this.history,
       chatView: this.chatView,
       inputRow: this.input.render(width, this.theme, ct("chat.placeholder")),

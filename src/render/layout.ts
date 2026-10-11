@@ -14,14 +14,15 @@ export const MIN_WIDTH = 50;
 export const MIN_HEIGHT = 14;
 const PROMPT_H = 3; // rule + input row + hint row
 const MIN_CHAT_H = 6; // frame rows the conversation always keeps
+const SPLIT_MIN_WIDTH = 110; // from here the orbit takes the left half of the screen
+const SPLIT_MIN_MAIN_H = 12; // ... when the panel area is at least this tall
+const MEDIUM_MIN_WIDTH = 80; // from here the stacked layout gives the orbit 45% of the height
+const MIN_STACK_ORBIT_H = 8; // frame rows of the orbit on narrow / short terminals
+const SIDE_BY_SIDE_MIN_WIDTH = 90; // feed and tasks share a row when the right half is this wide
+const DETAIL_H = 12; // node details: frame + title + 9 label rows
+const MIN_ORBIT_WITH_DETAIL_H = 14; // the orbit above the details keeps at least this many frame rows
 
-export type OrbitRenderer = (
-  state: HudState,
-  width: number,
-  height: number,
-  theme: HudTheme,
-  options?: { selectedId?: string; small?: boolean; labels?: boolean; wide?: boolean },
-) => string[];
+export type OrbitRenderer = (state: HudState, width: number, height: number, theme: HudTheme, options?: { selectedId?: string }) => string[];
 
 export interface ComposeOptions {
   selectedId?: string;
@@ -48,7 +49,7 @@ function frame(title: string, body: readonly string[], w: number, h: number, the
   const top =
     t === ""
       ? edge("╭" + "─".repeat(inner) + "╮")
-      : edge("╭─ ") + t + edge(" " + "─".repeat(Math.max(0, inner - 3 - vw(t) - 1)) + "╮");
+      : edge("╭─ ") + t + edge(" " + "─".repeat(Math.max(0, inner - 3 - vw(t))) + "╮");
   const out: string[] = [top];
   for (let i = 0; i < h - 2; i++) out.push(edge("│") + padEnd(body[i] ?? "", inner) + edge("│"));
   out.push(edge("╰" + "─".repeat(inner) + "╯"));
@@ -193,7 +194,7 @@ export function composeHud(state: HudState, width: number, height: number, theme
 
   // Bottom strip: token panel
   const tokenLines = renderTokens(state, width - 2, theme, opts.history);
-  const framedStrip = bodyH >= 20;
+  const framedStrip = bodyH >= 20 && (width >= SPLIT_MIN_WIDTH || bodyH >= 28); // narrow and short: plain rows, the space goes to the panels
   let stripH = framedStrip ? tokenLines.length + 2 : tokenLines.length;
   while (bodyH - stripH < 6 && tokenLines.length > 1) {
     tokenLines.pop();
@@ -201,10 +202,10 @@ export function composeHud(state: HudState, width: number, height: number, theme
   }
   const mainH = bodyH - stripH;
 
-  const orbitPanel = (w: number, h: number, wide = false): string[] =>
+  const orbitPanel = (w: number, h: number): string[] =>
     frame(
       theme.bold(theme.fg("accent", t("net.title"))) + theme.fg("muted", ` · ${state.nodes.length}`),
-      opts.orbit(state, Math.max(0, w - 2), Math.max(0, h - 2), theme, { selectedId: opts.selectedId, ...(wide ? { small: true, wide: true } : {}) }),
+      opts.orbit(state, Math.max(0, w - 2), Math.max(0, h - 2), theme, { selectedId: opts.selectedId }),
       w,
       h,
       theme,
@@ -223,33 +224,48 @@ export function composeHud(state: HudState, width: number, height: number, theme
   };
 
   let main: string[];
-  if (width >= 110) {
-    // Left: orbit (details replace it when the column is tall enough). Right: conversation, thin feed, task summary.
-    const leftW = 34;
+  if (width >= SPLIT_MIN_WIDTH && mainH >= SPLIT_MIN_MAIN_H) {
+    // Left half: the orbit scene over the full height (the node details take the bottom of it, or all of it on short
+    // terminals). Right half: conversation on top; the live feed and the tasks below, side by side when the half is wide.
+    const leftW = Math.floor(width / 2);
     const rightW = width - leftW;
-    let tasksH = mainH >= 22 ? 4 : mainH >= 16 ? 3 : 0;
-    let feedH = mainH >= 26 ? 6 : mainH >= 16 ? 5 : mainH >= 12 ? 4 : 0;
-    if (mainH - feedH - tasksH < MIN_CHAT_H) tasksH = 0;
-    if (mainH - feedH - tasksH < MIN_CHAT_H) feedH = 0;
-    const chatH = mainH - feedH - tasksH;
-    const detailInLeft = showDetail && mainH >= 12;
-    const left = detailInLeft ? detailPanel(leftW, mainH) : orbitPanel(leftW, mainH);
-    const right = [
-      ...(showDetail && !detailInLeft ? detailPanel(rightW, chatH) : chatPanel(rightW, chatH)),
-      ...(feedH > 0 ? feedPanel(rightW, feedH) : []),
-      ...(tasksH > 0 ? tasksPanel(rightW, tasksH) : []),
-    ];
+    let left: string[];
+    if (!showDetail) left = orbitPanel(leftW, mainH);
+    else if (mainH - DETAIL_H >= MIN_ORBIT_WITH_DETAIL_H) left = [...orbitPanel(leftW, mainH - DETAIL_H), ...detailPanel(leftW, DETAIL_H)];
+    else left = detailPanel(leftW, mainH);
+
+    const chatTarget = Math.max(MIN_CHAT_H, Math.round(mainH * 0.55));
+    const lowH = mainH - chatTarget;
+    let right: string[];
+    if (lowH >= 8 && rightW >= SIDE_BY_SIDE_MIN_WIDTH) {
+      const feedW = Math.round(rightW * 0.6);
+      right = [...chatPanel(rightW, chatTarget), ...joinColumns(feedPanel(feedW, lowH), tasksPanel(rightW - feedW, lowH))];
+    } else if (lowH >= 8) {
+      const tasksH = Math.min(9, Math.max(4, Math.round(lowH * 0.4)));
+      right = [...chatPanel(rightW, chatTarget), ...feedPanel(rightW, lowH - tasksH), ...tasksPanel(rightW, tasksH)];
+    } else if (lowH >= 4) right = [...chatPanel(rightW, chatTarget), ...feedPanel(rightW, lowH)];
+    else right = chatPanel(rightW, mainH);
     main = joinColumns(left, right);
   } else {
-    // Narrow: (medium widths) a small orbit on top, then the conversation and a thin feed.
-    const feedH = mainH >= 16 ? 4 : mainH >= 12 ? 3 : 0;
-    let orbitH = width >= 70 ? Math.max(7, Math.round(mainH * 0.25)) : 0;
-    if (mainH - feedH - orbitH < MIN_CHAT_H + 2) orbitH = 0;
-    const chatH = mainH - feedH - orbitH;
+    // Stacked: the orbit scene on top (about 45% of the height on medium widths, a thin one on narrow terminals),
+    // then the conversation with a thin feed and task summary. The details take the place of the orbit and may grow it a bit.
+    const share = width >= MEDIUM_MIN_WIDTH ? 0.45 : 0.38;
+    let topH = Math.max(MIN_STACK_ORBIT_H, Math.round(mainH * share));
+    if (mainH - topH < MIN_CHAT_H) topH = mainH - MIN_CHAT_H;
+    if (topH < MIN_STACK_ORBIT_H - 1) topH = 0;
+    if (showDetail && topH > 0) topH = Math.max(topH, Math.min(DETAIL_H, mainH - MIN_CHAT_H));
+    const rest = mainH - topH;
+    let tasksH = width >= MEDIUM_MIN_WIDTH && rest >= 12 ? 3 : 0;
+    let feedH = rest - tasksH >= 9 ? (rest >= 20 ? 5 : rest >= 16 ? 4 : 3) : 0;
+    if (rest - tasksH - feedH < MIN_CHAT_H) feedH = 0;
+    if (rest - tasksH - feedH < MIN_CHAT_H) tasksH = 0;
+    const chatH = rest - tasksH - feedH;
+    const detailOnTop = showDetail && topH > 0;
     main = [
-      ...(orbitH > 0 ? orbitPanel(width, orbitH, true) : []),
-      ...(showDetail ? detailPanel(width, chatH) : chatPanel(width, chatH)),
+      ...(topH > 0 ? (detailOnTop ? detailPanel(width, topH) : orbitPanel(width, topH)) : []),
+      ...(showDetail && topH === 0 ? detailPanel(width, chatH) : chatPanel(width, chatH)),
       ...(feedH > 0 ? feedPanel(width, feedH) : []),
+      ...(tasksH > 0 ? tasksPanel(width, tasksH) : []),
     ];
   }
 
