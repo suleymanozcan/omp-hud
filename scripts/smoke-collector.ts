@@ -916,7 +916,8 @@ console.log("[chat: panel]");
   check("chat panel: labels, no markdown markers", text.includes("you ▸") && text.includes("omp ▸") && !text.includes("**") && !text.includes("# Title") && text.includes("Title"));
   check("chat panel: list items keep their markers, wrapped lines hang", text.includes("• first item") && text.includes("1. numbered"));
   const codeRow = renderChat(s.state, 50, 30, tagTheme).find((x) => x.includes("veryLongCodeLine"));
-  check("chat panel: code is dim, indented and clipped with an ellipsis", codeRow !== undefined && codeRow.includes("<dim>  const") && plain(codeRow).includes("…") && !plain(codeRow).includes("argumentNumberThree"), codeRow);
+  const codeRows = plain(renderChat(s.state, 50, 30, noTheme).join("\n"));
+  check("chat panel: code is dim, indented and wraps with a ↪ instead of being clipped", codeRow !== undefined && codeRow.includes("<dim>  const") && !codeRows.includes("…") && codeRows.includes("↪") && codeRows.replace(/[\s↪]/g, "").includes("argumentNumberThree);"), codeRow);
   const view = newChatView();
   for (let i = 0; i < 12; i++) s.addChat({ role: "assistant", text: `line ${i}\nline ${i}b` });
   const follow = renderChat(s.state, 50, 10, noTheme, view);
@@ -938,6 +939,63 @@ console.log("[chat: panel]");
     return renderChat(streaming.state, 30, 3, noTheme)[0]!;
   });
   check("chat panel: a streaming message shows a blinking block cursor", frames.some((f) => f.includes("▌")) && frames[0] !== frames[1], frames);
+
+  // --- wide lines wrap (never clipped), at every width
+  const wideUrl = `https://example.com/${"a".repeat(120)}`;
+  const wideTable = "| Repo | GitHub status |\n|---|---|\n| `omp-hud` | Published 0.1.0 earlier at github.com/x/omp-hud, last commit `7718ec2`; 20 commits ahead locally (`eded87f`, 0.3.0: bigger dock and typing in `/hud full`), not pushed |\n| property `api` | Never pushed. |";
+  const wideCode = "```sh\ncurl -fsSL https://example.com/some/very/long/path/that/keeps/going/and/going/forever/script.sh | bash -s -- --flag\n\tindented with a tab\n```";
+  const wideTr = "Çok uzun bir cümle: ğüşiöç İıŞ ÇÖÜ, hiçbir sözcük kesilmemeli; 日本語のテキストは幅が二倍です 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 sonu.";
+  const wideStore = createStore();
+  wideStore.addChat({ role: "user", text: `${wideTr}\n${wideUrl}\n/Users/someone/${"deep/".repeat(30)}file.txt` });
+  wideStore.addChat({ role: "assistant", text: `${wideTable}\n\n${wideCode}\n\n- ${wideTr}\n- ${wideUrl}\n> ${wideTr}\n# ${wideTr}\n\x1b[31mred\x1b]0;title\x07 escape ${wideUrl}` });
+  wideStore.addChat({ role: "assistant", text: "| a | b |\n|---|---|\n| 1 | 2 |" });
+  wideStore.addChat({ role: "assistant", text: "| no header row | second |\n| with a very long cell that has to wrap somewhere around here | x |", streaming: true });
+  const bad: Array<[number, number, number]> = [];
+  for (let w = 30; w <= 220; w++) {
+    const rows = renderChat(wideStore.state, w, 200, noTheme);
+    const wrong = rows.filter((r) => vw(r) > w).length;
+    if (rows.length !== 200 || wrong > 0) bad.push([w, rows.length, wrong]);
+  }
+  check("chat panel wrap: 30-220 columns, wide lines (table, URL, path, code, emoji, CJK, Turkish): 0 rows wider than the panel", bad.length === 0, bad.slice(0, 5));
+  for (const w of [30, 47, 80, 133]) {
+    const flat = renderChat(wideStore.state, w, 200, noTheme).map(plain).join("\n");
+    const squeezed = flat.replace(/[\s↪]/g, "");
+    check(`chat panel wrap ${w}: nothing is clipped (no ellipsis; URL, path, code, table cells and text survive whole)`,
+      !flat.includes("…") && squeezed.includes(wideUrl) && squeezed.includes("/Users/someone/") && squeezed.includes("file.txt")
+        && squeezed.includes("script.sh|bash-s----flag") && squeezed.includes("indentedwithatab") && squeezed.includes("20commitsaheadlocally") && squeezed.includes("typingin`/hudfull`),notpushed")
+        && squeezed.includes("😀".repeat(20)) && squeezed.includes("ğüşiöçİıŞÇÖÜ,hiçbirsözcükkesilmemeli") && squeezed.includes("日本語のテキストは幅が二倍です")
+        && squeezed.includes("redescape"), flat);
+  }
+  const record = renderChat(wideStore.state, 50, 200, noTheme).map(plain).join("\n");
+  check("chat panel wrap: a table wider than the panel becomes records (first cell, then `header: value` lines)", record.includes("▪ `omp-hud`") && record.includes("  GitHub status: Published") && record.includes("▪ property `api`") && !record.includes("| Repo |"), record);
+  const wideRows = renderChat(wideStore.state, 220, 200, noTheme).map(plain).join("\n");
+  check("chat panel wrap: a table that fits stays as written", wideRows.includes("| a | b |\n") && wideRows.includes("|---|---|") && wideRows.includes("| 1 | 2 |"), wideRows);
+  const csiRows = renderChat(wideStore.state, 60, 200, noTheme).map((r) => r).join("\n");
+  check("chat panel wrap: escape sequences in a message never reach the screen", !csiRows.includes("\x1b") && !csiRows.includes("\x07"));
+
+  // --- scrolling stays on the same message when the width changes
+  const scrollStore = createStore();
+  for (let i = 0; i < 24; i++) scrollStore.addChat({ role: "assistant", text: Array.from({ length: 30 }, () => `w${i}x`).join(" ") });
+  const sv = newChatView();
+  renderChat(scrollStore.state, 100, 12, noTheme, sv);
+  const idAt = (rows: string[], pos: number): number => {
+    for (let i = pos; i >= 0; i--) {
+      const m = /w(\d+)x/.exec(rows[i]!);
+      if (m) return Number(m[1]);
+    }
+    return -1;
+  };
+  sv.follow = false;
+  sv.offset = 60;
+  const wideView = renderChat(scrollStore.state, 100, 12, noTheme, sv).map(plain);
+  const wasId = idAt(wideView, 11);
+  const narrowView = renderChat(scrollStore.state, 50, 12, noTheme, sv).map(plain);
+  check("chat panel: a scrolled view keeps its message when the width shrinks", !sv.follow && idAt(narrowView, 11) === wasId && sv.offset > 60, [wasId, idAt(narrowView, 11), sv.offset]);
+  const backView = renderChat(scrollStore.state, 100, 12, noTheme, sv).map(plain);
+  check("chat panel: ... and when it grows back", idAt(backView, 11) === wasId, [wasId, idAt(backView, 11)]);
+  sv.follow = true;
+  const bottomRows = renderChat(scrollStore.state, 40, 12, noTheme, sv).map(plain);
+  check("chat panel: a following view stays at the newest line after a width change", sv.offset === 0 && idAt(bottomRows, 11) === 23, idAt(bottomRows, 11));
 }
 
 console.log("[chat: full screen component]");

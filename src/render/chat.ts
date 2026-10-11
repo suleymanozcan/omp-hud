@@ -1,6 +1,5 @@
 // Conversation panel of the full-screen HUD: newest message at the bottom, light markdown (no full renderer),
 // scrollable. Pure function of (state, width, height, view); the only side effect is the scroll bookkeeping written into `view`.
-import { wrapTextWithAnsi } from "@oh-my-pi/pi-tui";
 import type { ChatMessage, ChatView } from "../chat.ts";
 import { ct } from "../chat-i18n.ts";
 import { getLang } from "../i18n.ts";
@@ -10,13 +9,71 @@ import { trunc, vw } from "../util/text.ts";
 const LABEL_W = 6; // "you ▸ " / "omp ▸ " / "sen ▸ "
 const MIN_TEXT_W = 8; // below this the label column is dropped
 const CURSOR = "▌";
+const TAB = "    ";
 
 type Color = Parameters<HudTheme["fg"]>[0];
 
-/** Source line -> wrapped plain pieces; never wider than `w`. */
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** Cuts `text` into pieces of at most `firstW` (first piece) / `restW` (the others) cells; a cluster wider than the room stands alone. */
+function cutCells(text: string, firstW: number, restW: number): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let cw = 0;
+  let room = Math.max(1, firstW);
+  for (const { segment } of graphemes.segment(text)) {
+    const sw = vw(segment);
+    if (cw + sw > room && cur !== "") {
+      out.push(cur);
+      cur = "";
+      cw = 0;
+      room = Math.max(1, restW);
+    }
+    cur += segment;
+    cw += sw;
+  }
+  if (cur !== "" || out.length === 0) out.push(cur);
+  return out;
+}
+
+/**
+ * Plain text -> pieces of at most `w` visible cells, broken at spaces; a word wider than a line (URL, path) is cut cell by cell.
+ * Leading spaces are kept as the indent of every piece. The text has already been sanitized (no escape sequences).
+ */
 function wrap(text: string, w: number): string[] {
-  const out = wrapTextWithAnsi(text, Math.max(1, w));
+  const width = Math.max(1, w);
+  const lead = Math.min(/^ */.exec(text)![0].length, Math.floor(width / 2));
+  const pad = " ".repeat(lead);
+  const room = width - lead;
+  const out: string[] = [];
+  let cur = "";
+  let cw = 0;
+  for (const word of text.split(/ +/)) {
+    if (word === "") continue;
+    const ww = vw(word);
+    if (cur !== "" && cw + 1 + ww <= room) {
+      cur += ` ${word}`;
+      cw += 1 + ww;
+      continue;
+    }
+    if (cur !== "") out.push(pad + cur);
+    if (ww <= room) {
+      cur = word;
+      cw = ww;
+      continue;
+    }
+    const pieces = cutCells(word, room, room);
+    cur = pieces.pop()!;
+    cw = vw(cur);
+    for (const p of pieces) out.push(pad + p);
+  }
+  if (cur !== "") out.push(pad + cur);
   return out.length > 0 ? out : [""];
+}
+
+/** `wrap` behind a hanging prefix: the first piece gets `first`, the others `rest`; the text is wrapped to the room the wider one leaves. */
+function hung(text: string, w: number, first: string, rest: string): string[] {
+  return wrap(text, w - Math.max(vw(first), vw(rest))).map((p, i) => (i === 0 ? first : rest) + p);
 }
 
 /** Bold/underline emphasis markers fall back to plain text. */
@@ -24,14 +81,47 @@ function inline(s: string): string {
   return s.replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1");
 }
 
-/** Message text -> styled lines (no label, no cursor). Code blocks are dim, indented and clipped instead of wrapped. */
+const TABLE_ROW = /^\s*\|/;
+const TABLE_RULE = /^:?-+:?$/;
+
+function tableCells(line: string): string[] {
+  const cells = line.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/);
+  return cells.map((c) => inline(c.replace(/\\\|/g, "|").trim()));
+}
+
+/**
+ * A markdown table (consecutive `|` rows). One that fits stays as written. One that does not fit is turned into
+ * records: each body row becomes its first cell followed by one `header: value` line per other cell, all wrapped.
+ */
+function tableLines(rows: string[], w: number, paint: (s: string) => string, theme: HudTheme): string[] {
+  if (rows.every((r) => vw(r) <= w)) return rows.map(paint);
+  const parsed = rows.map(tableCells);
+  const hasHeader = parsed.length >= 2 && parsed[1]!.every((c) => TABLE_RULE.test(c));
+  if (!hasHeader) return parsed.flatMap((cells) => hung(cells.filter((c) => c !== "").join(" · "), w, "", "")).map(paint);
+  const head = parsed[0]!;
+  const out: string[] = [];
+  for (const cells of parsed.slice(2)) {
+    const title = cells[0] ?? "";
+    for (const p of hung(title, w, "▪ ", "  ")) out.push(theme.bold(paint(p)));
+    for (let i = 1; i < cells.length; i++) {
+      const value = cells[i]!;
+      if (value === "") continue;
+      const key = head[i] ?? "";
+      for (const p of hung(key === "" ? value : `${key}: ${value}`, w, "  ", "    ")) out.push(paint(p));
+    }
+  }
+  return out;
+}
+
+/** Message text -> styled lines (no label, no cursor). Nothing is clipped: every source line wraps to the width. */
 function bodyLines(text: string, w: number, color: Color, theme: HudTheme): string[] {
   const out: string[] = [];
   let inCode = false;
   let blank = false;
   const paint = (s: string): string => theme.fg(color, s);
-  for (const raw of text.split("\n")) {
-    const line = raw.replace(/\s+$/, "");
+  const lines = text.split("\n").map((raw) => raw.replace(/\t/g, TAB).replace(/\s+$/, ""));
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
     const fence = /^\s*(?:```|~~~)\s*([\w+#.-]*)/.exec(line);
     if (fence) {
       inCode = !inCode;
@@ -40,7 +130,10 @@ function bodyLines(text: string, w: number, color: Color, theme: HudTheme): stri
       continue;
     }
     if (inCode) {
-      out.push(theme.fg("dim", trunc(`  ${line}`, w)));
+      // Code keeps its spacing: cut at the cell, continuation pieces start with a ↪.
+      const [head, ...tail] = cutCells(line, w - 2, w - 3);
+      out.push(theme.fg("dim", `  ${head}`));
+      for (const p of tail) out.push(theme.fg("dim", `  ↪${p}`));
       blank = false;
       continue;
     }
@@ -50,8 +143,10 @@ function bodyLines(text: string, w: number, color: Color, theme: HudTheme): stri
       continue;
     }
     blank = false;
-    if (/^\s*\|/.test(line)) {
-      out.push(paint(trunc(line, w)));
+    if (TABLE_ROW.test(line)) {
+      const rows = [line];
+      while (i + 1 < lines.length && TABLE_ROW.test(lines[i + 1]!)) rows.push(lines[++i]!);
+      out.push(...tableLines(rows, w, paint, theme));
       continue;
     }
     const heading = /^\s{0,3}#{1,6}\s+(.*)$/.exec(line);
@@ -64,9 +159,7 @@ function bodyLines(text: string, w: number, color: Color, theme: HudTheme): stri
       const indent = " ".repeat(Math.min(item[1]!.length, Math.max(0, w - 6)));
       const marker = /\d/.test(item[2]!) ? item[2]! : "•";
       const prefix = `${indent}${marker} `;
-      const hang = " ".repeat(vw(prefix));
-      const pieces = wrap(inline(item[3]!), w - vw(prefix));
-      pieces.forEach((p, i) => out.push(paint((i === 0 ? prefix : hang) + p)));
+      for (const p of hung(inline(item[3]!), w, prefix, " ".repeat(vw(prefix)))) out.push(paint(p));
       continue;
     }
     const quote = /^\s*>\s?(.*)$/.exec(line);
@@ -114,15 +207,18 @@ function withCursor(lines: string[], width: number, theme: HudTheme, phase: numb
 /**
  * Exactly `height` rows, each at most `width` cells. `view` (optional) carries the scroll position:
  * `follow` sticks to the newest line, otherwise `offset` lines are scrolled up from the bottom and a growing
- * conversation does not move what is on screen. The renderer writes `max`/`lastTotal`/`offset` back.
+ * conversation does not move what is on screen. When the width changes the wrapped line counts change too: the
+ * line at the bottom of the view is remembered as (message, fraction of that message) and found again at the new width.
+ * The renderer writes `max`/`lastTotal`/`offset`/`width`/`anchor` back.
  */
 export function renderChat(state: HudState, width: number, height: number, theme: HudTheme, view?: ChatView): string[] {
   if (height <= 0) return [];
   const w = Math.max(1, width);
   const messages = state.chat ?? [];
-  let all: string[] = [];
+  const all: string[] = [];
+  const spans: Array<{ id: string; start: number; len: number }> = [];
   if (messages.length === 0) {
-    all = [theme.fg("dim", trunc(ct("chat.empty"), w))];
+    all.push(theme.fg("dim", trunc(ct("chat.empty"), w)));
   } else {
     const lang = getLang();
     const cache = view?.cache;
@@ -136,11 +232,13 @@ export function renderChat(state: HudState, width: number, height: number, theme
         cache?.set(msg.id, lines);
       }
       live.add(msg.id);
+      const start = all.length;
       if (msg.streaming) {
         const copy = [...lines.lines];
         withCursor(copy, w, theme, state.phase);
         all.push(...copy);
       } else all.push(...lines.lines);
+      spans.push({ id: msg.id, start, len: all.length - start });
     });
     if (cache && cache.size > live.size) for (const id of [...cache.keys()]) if (!live.has(id)) cache.delete(id);
   }
@@ -149,12 +247,24 @@ export function renderChat(state: HudState, width: number, height: number, theme
   const max = Math.max(0, total - height);
   let offset = 0;
   if (view) {
-    if (!view.follow && view.lastTotal > 0 && total > view.lastTotal) view.offset += total - view.lastTotal;
+    const anchored = view.anchor && spans.find((s) => s.id === view.anchor!.id);
+    if (!view.follow && view.width !== 0 && view.width !== w && anchored) {
+      view.offset = total - (anchored.start + Math.max(1, Math.round(view.anchor!.frac * anchored.len)));
+    } else if (!view.follow && view.lastTotal > 0 && total > view.lastTotal) view.offset += total - view.lastTotal;
     offset = view.follow ? 0 : Math.min(Math.max(0, view.offset), max);
     view.offset = offset;
     view.max = max;
     view.page = height;
     view.lastTotal = total;
+    view.width = w;
+    view.anchor = undefined;
+    if (!view.follow) {
+      const bottom = total - offset - 1;
+      let at = spans.length - 1;
+      while (at > 0 && spans[at]!.start > bottom) at--;
+      const span = spans[at];
+      if (span) view.anchor = { id: span.id, frac: Math.min(1, Math.max(0, (bottom - span.start + 1) / span.len)) };
+    }
   }
   const end = total - offset;
   const start = Math.max(0, end - height);

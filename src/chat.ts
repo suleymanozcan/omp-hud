@@ -37,11 +37,13 @@ export interface ChatView {
   max: number; // largest valid offset, written by the renderer
   page: number; // visible rows of the panel, written by the renderer (PageUp/PageDown step)
   lastTotal: number; // total wrapped lines at the previous render (keeps the view still while new text arrives)
+  width: number; // panel width at the previous render (0 = not rendered yet): a change re-wraps every message
+  anchor?: { id: string; frac: number }; // the line at the bottom of a scrolled view: its message and how far into it (0..1)
   cache: Map<string, { key: string; lines: string[] }>; // wrapped lines per message id
 }
 
 export function newChatView(): ChatView {
-  return { follow: true, offset: 0, max: 0, page: 10, lastTotal: 0, cache: new Map() };
+  return { follow: true, offset: 0, max: 0, page: 10, lastTotal: 0, width: 0, cache: new Map() };
 }
 
 /** What the full-screen HUD can do with a line typed into its prompt; implemented by the extension entry (or the demo). */
