@@ -22,6 +22,12 @@ Terminal HUD for [oh-my-pi](https://github.com/can1357/oh-my-pi) (`omp`): an ani
 
 ![Compact widget below the editor](docs/img/hud-compact.png)
 
+## Dock
+
+The dock is a short panel (6, 9 or 12 rows; never more than 40% of the terminal height) that sits right above the editor, so you can keep typing prompts and reading answers while the HUD stays visible. Unlike the fullscreen overlay it does not take focus. It shows a small animated core with the sub-agent orbit (running nodes move, finished ones turn green, failed ones red), the latest live-feed lines, the active task and a token line. Below 70 columns the orbit is replaced by a compact status block plus the tail of the feed. The dock takes its rows from the transcript above it, so keep it small on short terminals. Commands: see `/hud help`.
+
+Preview without omp: `bun scripts/preview.ts --dock --size medium --width 130 --rows 40 --at 3,14,24,36`.
+
 ## Install
 
 Requires `omp` (oh-my-pi) with extension support. Developed and tested on **omp 18.8.9** only (see [Compatibility](#compatibility-and-honest-limits)). There is no build step and no dependencies: omp runs the TypeScript directly.

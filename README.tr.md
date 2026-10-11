@@ -22,6 +22,12 @@
 
 ![Editörün altındaki kompakt widget](docs/img/hud-compact.tr.png)
 
+## Dock
+
+Dock, editörün hemen üstünde duran kısa bir panel (6, 9 ya da 12 satır; terminal yüksekliğinin en çok %40'ı). Böylece HUD görünürken prompt yazmaya ve cevapları okumaya devam edebilirsin. Tam ekran katmanın aksine odağı almaz. Küçük animasyonlu çekirdeği ve alt ajan yörüngesini (çalışan düğümler hareket eder, biten yeşil, hata veren kırmızı), canlı akışın son satırlarını, aktif görevi ve token satırını gösterir. 70 sütunun altında yörünge yerine kompakt durum bloğu ve akışın son satırları gelir. Dock satırlarını üstündeki konuşma alanından alır; kısa terminallerde küçük tut. Komutlar: `/hud help`.
+
+omp'siz önizleme: `bun scripts/preview.ts --dock --size medium --width 130 --rows 40 --at 3,14,24,36`.
+
 ## Kurulum
 
 Eklenti desteği olan `omp` (oh-my-pi) gerekir. Yalnızca **omp 18.8.9** üzerinde geliştirildi ve denendi ([Uyumluluk](#uyumluluk-ve-dürüst-sınırlar) bölümüne bakın). Derleme adımı ve bağımlılık yoktur: omp TypeScript'i doğrudan çalıştırır.
