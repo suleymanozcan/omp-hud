@@ -1,26 +1,32 @@
 // omp HUD extension: sci-fi style main-agent core + subagent nodes + live feed.
-// Commands: /hud (full screen), /hud demo, /hud compact [on|off], /hud status [on|off], /hud pad [0-3],
-// /hud lang [tr|en|auto], /hud doctor, /hud help.
+// Default view: the dock, a short panel next to the editor (you keep typing). Commands: /hud (dock on/off),
+// /hud full, /hud size, /hud place, /hud demo [off|full], /hud compact [on|off], /hud status [on|off],
+// /hud pad [0-3], /hud lang [tr|en|auto], /hud doctor, /hud help.
 import type { ExtensionAPI, ExtensionContext, Theme } from "@oh-my-pi/pi-coding-agent";
-import type { TUI } from "@oh-my-pi/pi-tui";
+import type { Component, TUI } from "@oh-my-pi/pi-tui";
 import pkg from "./package.json" with { type: "json" };
 import { attachCollector } from "./src/collector.ts";
 import { CompactHud } from "./src/components/compact-hud.ts";
+import { DockHud, dockHeightFor } from "./src/components/dock-hud.ts";
 import { FullHud } from "./src/components/full-hud.ts";
 import { PaddedComponent } from "./src/components/padded.ts";
 import { DemoDriver } from "./src/demo.ts";
 import { createStore } from "./src/store.ts";
 import type { HudStore, HudTheme } from "./src/types.ts";
 import { getLang, isLangAuto, setLang, t } from "./src/i18n.ts";
+import { getPlace, getSize, parsePlace, parseSize, setPlace, setSize } from "./src/layout-settings.ts";
+import { compactIsAnimated } from "./src/render/compact.ts";
+import { dockIsAnimated } from "./src/render/dock.ts";
 import { fmtDur } from "./src/render/fmt.ts";
 import { getPad, parsePad, setPad } from "./src/pad.ts";
 import { nodeCounts, statusIsAnimated, statusLineText, STATUS_MAX_COLS } from "./src/status-text.ts";
 
-const WIDGET_KEY = "hud";
+const COMPACT_KEY = "hud";
+const DOCK_KEY = "hud-dock";
 const STATUS_KEY = "hud";
 const FULL_MS = 66; // ~15 fps
-const COMPACT_BUSY_MS = 125; // ~8 fps
-const COMPACT_IDLE_MS = 500; // 2 fps
+const VISIBLE_BUSY_MS = 125; // dock / compact while something is going on, ~8 fps
+const VISIBLE_IDLE_MS = 500; // dock / compact while idle, 2 fps
 const STATUS_ANIM_MS = 500; // spinner cadence of the status line when nothing else is visible
 const STATUS_GAP_MS = 450; // minimum gap between two setStatus writes (<= 2 Hz)
 const SETTLE_MS = 3000; // stay at the fast rate briefly after done/error
@@ -35,24 +41,38 @@ interface CallResult {
   err?: string;
 }
 
+/** One mounted widget (dock or compact panel) and what omp did with it. */
+interface WidgetInfo {
+  on: boolean;
+  tui?: TUI;
+  call?: CallResult;
+  mounted: boolean; // omp called the widget factory
+  renders: number;
+  lastWidth: number;
+  lastLines: number;
+}
+
+function newWidget(): WidgetInfo {
+  return { on: false, mounted: false, renders: 0, lastWidth: 0, lastLines: 0 };
+}
+
+type View = "dock" | "compact" | "off";
+
 interface HudRuntime {
   ctx?: ExtensionContext; // main-session context that set up the timer
   timer?: unknown;
   timerCtx?: ExtensionContext;
   interval: number;
   last: number;
-  compactWanted: boolean; // user preference (on by default)
-  compactOn: boolean;
-  compactTui?: TUI;
+  view: View; // user preference: which panel is shown next to the editor (dock by default, never both)
+  dock: WidgetInfo;
+  compact: WidgetInfo;
+  demo?: { store: HudStore; driver: DemoDriver }; // simulated events shown in the dock instead of the real store
+  wasAnimated: boolean;
   fullOpen: boolean;
   fullStore?: HudStore;
   fullTui?: TUI;
   unsubStore?: () => void;
-  widgetCall?: CallResult;
-  mounted: boolean; // omp called the widget factory
-  renders: number;
-  lastRenderWidth: number;
-  lastRenderLines: number;
   statusWanted: boolean; // user preference (on by default)
   statusOn: boolean;
   statusText: string; // last successfully written text
@@ -65,13 +85,11 @@ interface HudRuntime {
 const hud: HudRuntime = {
   interval: 0,
   last: 0,
-  compactWanted: true,
-  compactOn: false,
+  view: "dock",
+  dock: newWidget(),
+  compact: newWidget(),
+  wasAnimated: false,
   fullOpen: false,
-  mounted: false,
-  renders: 0,
-  lastRenderWidth: 0,
-  lastRenderLines: 0,
   statusWanted: true,
   statusOn: false,
   statusText: "",
@@ -94,7 +112,7 @@ function isTui(ctx: ExtensionContext): boolean {
 
 /** Terminal size as seen by omp's TUI, else by stdout; undefined when unknown. */
 function screenSize(): { rows?: number; cols?: number } {
-  const term = (hud.compactTui ?? hud.fullTui)?.terminal;
+  const term = (hud.dock.tui ?? hud.compact.tui ?? hud.fullTui)?.terminal;
   const pick = (a: number | undefined, b: number | undefined): number | undefined => {
     const v = a ?? b;
     return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
@@ -111,6 +129,11 @@ function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** The store the dock currently shows: the demo's while a demo runs, else the real one. */
+function dockStore(real: HudStore): HudStore {
+  return hud.demo?.store ?? real;
+}
+
 function isBusy(store: HudStore): boolean {
   const { core, nodes, now } = store.state;
   if (core.status === "thinking" || core.status === "streaming" || core.status === "tool") return true;
@@ -120,7 +143,10 @@ function isBusy(store: HudStore): boolean {
 
 function desiredInterval(store: HudStore): number {
   if (hud.fullOpen) return FULL_MS;
-  if (hud.compactOn) return isBusy(store) ? COMPACT_BUSY_MS : COMPACT_IDLE_MS;
+  if (hud.dock.on || hud.compact.on) {
+    const busy = (hud.dock.on && isBusy(dockStore(store))) || (hud.compact.on && isBusy(store));
+    return busy ? VISIBLE_BUSY_MS : VISIBLE_IDLE_MS;
+  }
   // Status line only: the text changes with the store, except for the spinner while busy.
   return hud.statusOn && statusIsAnimated(store.state) ? STATUS_ANIM_MS : 0;
 }
@@ -141,7 +167,7 @@ function stopTimer(): void {
 /** Timer policy: when nothing is visible there is neither a timer nor a subscription. */
 function reschedule(store: HudStore): void {
   const ctx = hud.ctx;
-  const visible = hud.compactOn || hud.fullOpen || hud.statusOn;
+  const visible = hud.dock.on || hud.compact.on || hud.fullOpen || hud.statusOn;
   if (visible && !hud.unsubStore) hud.unsubStore = store.subscribe(() => onStoreChange(store));
   else if (!visible && hud.unsubStore) {
     hud.unsubStore();
@@ -160,7 +186,8 @@ function reschedule(store: HudStore): void {
 
 function onStoreChange(store: HudStore): void {
   reschedule(store);
-  if (hud.compactOn) hud.compactTui?.requestRender();
+  if (hud.compact.on) hud.compact.tui?.requestRender();
+  if (hud.dock.on && !hud.demo) hud.dock.tui?.requestRender();
   syncStatus(store);
 }
 
@@ -168,11 +195,23 @@ function tick(store: HudStore): void {
   const now = Date.now();
   const dt = now - hud.last;
   hud.last = now;
+  const shown = dockStore(store);
   const full = hud.fullOpen ? hud.fullStore : undefined;
-  if (hud.compactOn || full === store) store.tickAnimation(dt);
-  if (full && full !== store) full.tickAnimation(dt);
+  // Every visible store advances exactly once per tick (the real store may be shown by several views).
+  const toTick = new Set<HudStore>();
+  if (hud.compact.on) toTick.add(store);
+  if (hud.dock.on) toTick.add(shown);
+  if (full) toTick.add(full);
+  for (const s of toTick) s.tickAnimation(dt);
   if (hud.fullOpen) hud.fullTui?.requestRender();
-  if (hud.compactOn) hud.compactTui?.requestRender();
+  // Dock and compact only repaint while their output depends on the animation phase (and once more after it stops).
+  const animated =
+    (hud.dock.on && dockIsAnimated(shown.state)) || (hud.compact.on && compactIsAnimated(store.state));
+  if (animated || hud.wasAnimated) {
+    if (hud.dock.on) hud.dock.tui?.requestRender();
+    if (hud.compact.on) hud.compact.tui?.requestRender();
+  }
+  hud.wasAnimated = animated;
   syncStatus(store);
   reschedule(store);
 }
@@ -252,46 +291,118 @@ function hideStatus(ctx: ExtensionContext, store: HudStore): void {
   reschedule(store);
 }
 
-// --- Compact widget ---
+// --- Widgets: dock (aboveEditor by default) and compact panel (belowEditor) ---
 
-/** Installs the compact widget; false (with the error recorded) when omp rejects it. */
-function showCompact(ctx: ExtensionContext, store: HudStore): boolean {
+type Placement = "aboveEditor" | "belowEditor";
+
+/** Installs a widget wrapped in the bottom padding (applies only below the editor); false when omp rejects it. */
+function mountWidget(
+  ctx: ExtensionContext,
+  w: WidgetInfo,
+  key: string,
+  placement: Placement,
+  make: (tui: TUI, theme: Theme) => Component,
+): boolean {
   try {
     ctx.ui.setWidget(
-      WIDGET_KEY,
+      key,
       (tui, theme) => {
-        hud.compactTui = tui;
-        hud.mounted = true;
-        return new PaddedComponent(new CompactHud(store, makeTheme(theme)), getPad, (width, lines) => {
-          hud.renders++;
-          hud.lastRenderWidth = width;
-          hud.lastRenderLines = lines;
+        w.tui = tui;
+        w.mounted = true;
+        return new PaddedComponent(make(tui, theme), () => (placement === "belowEditor" ? getPad() : 0), (width, lines) => {
+          w.renders++;
+          w.lastWidth = width;
+          w.lastLines = lines;
         });
       },
-      { placement: "belowEditor" },
+      { placement },
     );
-    hud.widgetCall = { ok: true, at: Date.now() };
+    w.call = { ok: true, at: Date.now() };
   } catch (e) {
-    hud.widgetCall = { ok: false, at: Date.now(), err: errText(e) };
+    w.call = { ok: false, at: Date.now(), err: errText(e) };
     return false;
   }
   hud.ctx = ctx;
-  hud.compactOn = true;
-  reschedule(store);
+  w.on = true;
   return true;
 }
 
-function hideCompact(ctx: ExtensionContext, store: HudStore): void {
+function unmountWidget(ctx: ExtensionContext, w: WidgetInfo, key: string): void {
   try {
-    ctx.ui.setWidget(WIDGET_KEY, undefined);
-    hud.widgetCall = { ok: true, at: Date.now() };
+    ctx.ui.setWidget(key, undefined);
+    w.call = { ok: true, at: Date.now() };
   } catch (e) {
-    hud.widgetCall = { ok: false, at: Date.now(), err: errText(e) };
+    w.call = { ok: false, at: Date.now(), err: errText(e) };
   }
-  hud.compactOn = false;
-  hud.mounted = false;
-  hud.compactTui = undefined;
+  w.on = false;
+  w.mounted = false;
+  w.tui = undefined;
+}
+
+function showCompact(ctx: ExtensionContext, store: HudStore): boolean {
+  const ok = mountWidget(ctx, hud.compact, COMPACT_KEY, "belowEditor", (_tui, theme) => new CompactHud(store, makeTheme(theme)));
   reschedule(store);
+  return ok;
+}
+
+function hideCompact(ctx: ExtensionContext, store: HudStore): void {
+  unmountWidget(ctx, hud.compact, COMPACT_KEY);
+  reschedule(store);
+}
+
+/** (Re)installs the dock for the current size/place, bound to the demo store while a demo runs. */
+function showDock(ctx: ExtensionContext, store: HudStore): boolean {
+  const target = dockStore(store);
+  const placement: Placement = getPlace() === "above" ? "aboveEditor" : "belowEditor";
+  const ok = mountWidget(
+    ctx,
+    hud.dock,
+    DOCK_KEY,
+    placement,
+    (tui, theme) => new DockHud(target, makeTheme(theme), { getSize, getRows: () => rowsOf(tui) }),
+  );
+  hud.wasAnimated = true; // paint the first frames right away
+  reschedule(store);
+  return ok;
+}
+
+function hideDock(ctx: ExtensionContext, store: HudStore): void {
+  unmountWidget(ctx, hud.dock, DOCK_KEY);
+  reschedule(store);
+}
+
+/** Stops a running dock demo without touching the widgets; true when one was running. */
+function dropDemo(): boolean {
+  const d = hud.demo;
+  if (!d) return false;
+  hud.demo = undefined;
+  d.driver.stop();
+  return true;
+}
+
+/** Makes the widgets match `view` (dock and compact never show together); false when the wanted one failed to mount. */
+function applyView(ctx: ExtensionContext, store: HudStore, view: View): boolean {
+  if (view !== "dock" && hud.dock.on) hideDock(ctx, store);
+  if (view !== "compact" && hud.compact.on) hideCompact(ctx, store);
+  if (view === "dock") return showDock(ctx, store);
+  if (view === "compact") return showCompact(ctx, store);
+  return true;
+}
+
+function startDemo(ctx: ExtensionContext, store: HudStore): boolean {
+  dropDemo();
+  const demoStore = createStore();
+  const driver = new DemoDriver(demoStore, {
+    setInterval: (fn, ms) => ctx.setInterval(fn, ms),
+    clearTimer: (handle) => ctx.clearTimer(handle),
+  });
+  driver.start();
+  hud.demo = { store: demoStore, driver };
+  if (hud.compact.on) hideCompact(ctx, store);
+  if (showDock(ctx, store)) return true;
+  dropDemo();
+  applyView(ctx, store, hud.view);
+  return false;
 }
 
 const FULL_OVERLAY = { anchor: "top-left", width: "100%", maxHeight: "100%", margin: 0 } as const;
@@ -343,7 +454,7 @@ async function openFull(
   }
 }
 
-async function runDemo(ctx: ExtensionContext, real: HudStore): Promise<void> {
+async function runFullDemo(ctx: ExtensionContext, real: HudStore): Promise<void> {
   const demoStore = createStore();
   const driver = new DemoDriver(demoStore, {
     setInterval: (fn, ms) => ctx.setInterval(fn, ms),
@@ -365,7 +476,7 @@ function callText(c: CallResult | undefined): string {
   return c.ok ? t("doc.ok", { ago: ago(c.at) }) : t("doc.failed", { err: c.err ?? "?" });
 }
 
-/** Multi-line diagnostics. Only the two documented HUD env values are shown; no other environment access. */
+/** Multi-line diagnostics. Only the HUD env values that are documented are shown; no other environment access. */
 function doctorText(ctx: ExtensionContext, store: HudStore): string {
   const yn = (b: boolean): string => (b ? t("doc.yes") : t("doc.no"));
   const onOff = (b: boolean): string => (b ? t("doc.on") : t("doc.off"));
@@ -373,10 +484,11 @@ function doctorText(ctx: ExtensionContext, store: HudStore): string {
   const { state } = store;
   const { rows, cols } = screenSize();
   const pad = getPad();
-  const lastRender = hud.renders > 0 ? t("doc.lastRender", { w: hud.lastRenderWidth, n: hud.lastRenderLines }) : "";
+  const lastRender = (w: WidgetInfo): string => (w.renders > 0 ? t("doc.lastRender", { w: w.lastWidth, n: w.lastLines }) : "");
   const lastFeed = state.feed[state.feed.length - 1];
   const counts = nodeCounts(state.nodes);
   const hz = hud.interval > 0 ? Math.round((1000 / hud.interval) * 10) / 10 : 0;
+  const { dock, compact } = hud;
   const lines = [
     t("doc.title"),
     t("doc.version", { v: String(pkg.version) }),
@@ -387,12 +499,23 @@ function doctorText(ctx: ExtensionContext, store: HudStore): string {
       ct: (process.env.COLORTERM ?? "-").slice(0, 12),
     }),
     t("doc.mode", { mode: ctx.mode ?? unk, ui: yn(ctx.hasUI) }),
+    t("doc.dock", {
+      state: onOff(dock.on),
+      size: getSize(),
+      rows: dockHeightFor(getSize(), rows ?? 30),
+      place: getPlace(),
+      call: callText(dock.call),
+      mounted: yn(dock.mounted),
+      n: dock.renders,
+      last: lastRender(dock),
+    }),
+    t("doc.demo", { state: hud.demo ? t("doc.demoDock") : t("doc.demoNone") }),
     t("doc.widget", {
-      state: onOff(hud.compactOn),
-      call: callText(hud.widgetCall),
-      mounted: yn(hud.mounted),
-      n: hud.renders,
-      last: lastRender,
+      state: onOff(compact.on),
+      call: callText(compact.call),
+      mounted: yn(compact.mounted),
+      n: compact.renders,
+      last: lastRender(compact),
     }),
     t("doc.status", {
       state: onOff(hud.statusOn),
@@ -405,7 +528,7 @@ function doctorText(ctx: ExtensionContext, store: HudStore): string {
       cols: cols ?? unk,
       pad,
       full: rows === undefined ? unk : Math.max(1, rows - pad),
-      lines: hud.compactOn && hud.renders > 0 ? `${hud.lastRenderLines} (${Math.max(0, hud.lastRenderLines - pad)} + pad ${pad})` : "0",
+      lines: compact.on && compact.renders > 0 ? `${compact.lastLines} (${Math.max(0, compact.lastLines - pad)} + pad ${pad})` : "0",
     }),
     t("doc.store", {
       ver: store.version,
@@ -421,18 +544,30 @@ function doctorText(ctx: ExtensionContext, store: HudStore): string {
   return lines.join("\n");
 }
 
+function placeText(): string {
+  return t(`place.${getPlace()}`);
+}
+
+function requestRenders(): void {
+  hud.dock.tui?.requestRender();
+  hud.compact.tui?.requestRender();
+  hud.fullTui?.requestRender();
+}
+
 export default function hudExtension(pi: ExtensionAPI): void {
   const store = (sharedStore ??= createStore());
 
   // The collector feeds the same store from the main and subagent sessions (subagents are told apart by ctx.agent).
   attachCollector(pi, store);
 
-  const bootCompact = (_event: unknown, ctx: ExtensionContext): void => {
+  const bootView = (_event: unknown, ctx: ExtensionContext): void => {
     try {
       if (ctx.agent?.kind === "sub" || !isTui(ctx)) return;
       hud.ctx = ctx;
-      if (hud.compactWanted && !showCompact(ctx, store)) {
-        ctx.ui.notify(t("cmd.compactFailed", { err: hud.widgetCall?.err ?? "?" }), "warning");
+      dropDemo(); // a demo never survives a session change
+      if (!applyView(ctx, store, hud.view)) {
+        const failed = hud.view === "dock" ? hud.dock : hud.compact;
+        ctx.ui.notify(t(hud.view === "dock" ? "cmd.dockFailed" : "cmd.compactFailed", { err: failed.call?.err ?? "?" }), "warning");
       }
       if (hud.statusWanted) showStatus(ctx, store);
     } catch (e) {
@@ -443,14 +578,15 @@ export default function hudExtension(pi: ExtensionAPI): void {
       }
     }
   };
-  pi.on("session_start", bootCompact);
-  pi.on("session_switch", bootCompact);
+  pi.on("session_start", bootView);
+  pi.on("session_switch", bootView);
 
   pi.on("session_shutdown", (_event, ctx) => {
     try {
       if (ctx.agent?.kind === "sub") return;
       stopTimer();
       cancelStatusFlush();
+      dropDemo();
       if (hud.statusOn) {
         try {
           ctx.ui.setStatus(STATUS_KEY, undefined);
@@ -462,9 +598,11 @@ export default function hudExtension(pi: ExtensionAPI): void {
       hud.statusText = "";
       hud.unsubStore?.();
       hud.unsubStore = undefined;
-      hud.compactOn = false;
-      hud.mounted = false;
-      hud.compactTui = undefined;
+      for (const w of [hud.dock, hud.compact]) {
+        w.on = false;
+        w.mounted = false;
+        w.tui = undefined;
+      }
       hud.fullOpen = false;
       hud.ctx = undefined;
     } catch {
@@ -479,26 +617,106 @@ export default function hudExtension(pi: ExtensionAPI): void {
       const [sub = "", arg = ""] = args.trim().toLowerCase().split(/\s+/);
       try {
         switch (sub) {
-          case "":
+          case "": {
+            // Toggle the dock.
+            if (hud.dock.on) {
+              dropDemo();
+              hud.view = "off";
+              hideDock(ctx, store);
+              ctx.ui.notify(t("cmd.dockOff"), "info");
+              return;
+            }
+            const switched = hud.compact.on;
+            hud.view = "dock";
+            if (!applyView(ctx, store, "dock")) {
+              ctx.ui.notify(t("cmd.dockFailed", { err: hud.dock.call?.err ?? "?" }), "error");
+              return;
+            }
+            ctx.ui.notify(t(switched ? "cmd.dockOnSwitched" : "cmd.dockOn", { size: getSize(), place: placeText() }), "info");
+            return;
+          }
+          case "full":
             await openFull(ctx, store, store);
             return;
-          case "demo":
-            await runDemo(ctx, store);
-            ctx.ui.notify(t("cmd.demoClosed"), "info");
-            return;
-          case "compact": {
-            const want = arg === "on" ? true : arg === "off" ? false : !hud.compactOn;
-            const already = want === hud.compactOn;
-            hud.compactWanted = want;
-            if (want) {
-              if (!showCompact(ctx, store)) {
-                ctx.ui.notify(t("cmd.compactFailed", { err: hud.widgetCall?.err ?? "?" }), "error");
+          case "size": {
+            if (arg !== "") {
+              const size = parseSize(arg);
+              if (size === undefined) {
+                ctx.ui.notify(t("cmd.sizeUsage"), "warning");
                 return;
               }
-              ctx.ui.notify(t(already ? "cmd.compactAlreadyOn" : "cmd.compactOn"), "info");
-            } else {
+              setSize(size);
+              requestRenders();
+            }
+            ctx.ui.notify(t("cmd.sizeNow", { size: getSize(), rows: dockHeightFor(getSize(), screenSize().rows ?? 30) }), "info");
+            return;
+          }
+          case "place": {
+            if (arg !== "") {
+              const place = parsePlace(arg);
+              if (place === undefined) {
+                ctx.ui.notify(t("cmd.placeUsage"), "warning");
+                return;
+              }
+              setPlace(place);
+              if (hud.dock.on) {
+                // A widget cannot change its placement in place: take it out and put it back.
+                hideDock(ctx, store);
+                if (!showDock(ctx, store)) {
+                  ctx.ui.notify(t("cmd.dockFailed", { err: hud.dock.call?.err ?? "?" }), "error");
+                  return;
+                }
+              }
+            }
+            ctx.ui.notify(t("cmd.placeNow", { place: placeText() }), "info");
+            return;
+          }
+          case "demo": {
+            if (arg === "full") {
+              await runFullDemo(ctx, store);
+              ctx.ui.notify(t("cmd.demoClosed"), "info");
+              return;
+            }
+            if (arg !== "" && arg !== "off") {
+              ctx.ui.notify(t("cmd.demoUsage"), "warning");
+              return;
+            }
+            if (hud.demo || arg === "off") {
+              if (!hud.demo) {
+                ctx.ui.notify(t("cmd.demoNone"), "info");
+                return;
+              }
+              dropDemo();
+              applyView(ctx, store, hud.view); // back to the real store (or off when the dock was only opened for the demo)
+              ctx.ui.notify(t("cmd.demoOff"), "info");
+              return;
+            }
+            if (!startDemo(ctx, store)) {
+              ctx.ui.notify(t("cmd.dockFailed", { err: hud.dock.call?.err ?? "?" }), "error");
+              return;
+            }
+            ctx.ui.notify(t("cmd.demoOn"), "info");
+            return;
+          }
+          case "compact": {
+            const on = hud.compact.on;
+            const want = arg === "on" ? true : arg === "off" ? false : !on;
+            if (want) {
+              // Compact replaces the dock: showing both would repeat the same data twice.
+              const switched = hud.dock.on;
+              dropDemo();
+              hud.view = "compact";
+              if (!applyView(ctx, store, "compact")) {
+                ctx.ui.notify(t("cmd.compactFailed", { err: hud.compact.call?.err ?? "?" }), "error");
+                return;
+              }
+              ctx.ui.notify(t(on ? "cmd.compactAlreadyOn" : switched ? "cmd.compactOnSwitched" : "cmd.compactOn"), "info");
+            } else if (on) {
+              hud.view = "off";
               hideCompact(ctx, store);
-              ctx.ui.notify(t(already ? "cmd.compactAlreadyOff" : "cmd.compactOff"), "info");
+              ctx.ui.notify(t("cmd.compactOff"), "info");
+            } else {
+              ctx.ui.notify(t("cmd.compactAlreadyOff"), "info");
             }
             return;
           }
@@ -534,8 +752,7 @@ export default function hudExtension(pi: ExtensionAPI): void {
                 return;
               }
               setPad(n);
-              hud.compactTui?.requestRender();
-              hud.fullTui?.requestRender();
+              requestRenders();
             }
             ctx.ui.notify(t("cmd.padNow", { n: getPad() }), "info");
             return;
@@ -544,8 +761,7 @@ export default function hudExtension(pi: ExtensionAPI): void {
             if (arg === "tr" || arg === "en" || arg === "auto") {
               setLang(arg);
               // Cache keys include the language: a render request is enough to redraw.
-              hud.compactTui?.requestRender();
-              hud.fullTui?.requestRender();
+              requestRenders();
               if (hud.statusOn) syncStatus(store);
             } else if (arg !== "") {
               ctx.ui.notify(t("cmd.langUsage"), "warning");
@@ -558,14 +774,18 @@ export default function hudExtension(pi: ExtensionAPI): void {
             ctx.ui.notify(doctorText(ctx, store), "info");
             return;
           case "help":
-            ctx.ui.notify(t("cmd.help", { pad: getPad() }), "info");
+            ctx.ui.notify(helpText(), "info");
             return;
           default:
-            ctx.ui.notify(`${t("cmd.unknown", { sub })}\n${t("cmd.help", { pad: getPad() })}`, "warning");
+            ctx.ui.notify(`${t("cmd.unknown", { sub })}\n${helpText()}`, "warning");
         }
       } catch (e) {
         ctx.ui.notify(t("cmd.error", { err: errText(e) }), "error");
       }
     },
   });
+}
+
+function helpText(): string {
+  return t("cmd.help", { pad: getPad(), size: getSize(), place: getPlace() });
 }

@@ -11,6 +11,7 @@ installPiTuiShim();
 const { createStore } = await import("../src/store.ts");
 const { attachCollector } = await import("../src/collector.ts");
 const { default: hudExtension } = await import("../index.ts");
+const { dockHeightFor } = await import("../src/components/dock-hud.ts");
 
 let failures = 0;
 let checks = 0;
@@ -77,6 +78,7 @@ function makeCtx(opts: { agent?: Record<string, unknown>; hasUI?: boolean; mode?
   const timers: TimerRec[] = [];
   const widgets: Array<{ key: string; content: unknown; options?: { placement?: string } }> = [];
   const notes: string[] = [];
+  const statuses: Array<{ key: string; text: string | undefined }> = [];
   const tui = { renders: 0, requestRender() { this.renders++; }, terminal: { rows: 24, columns: 100 } };
   const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t };
   const custom: { factory?: (...a: unknown[]) => { render(w: number): readonly string[]; dispose?(): void }; done?: (r: unknown) => void; options?: { overlay?: boolean; overlayOptions?: { fullscreen?: boolean } }; opened: number } = { opened: 0 };
@@ -105,6 +107,9 @@ function makeCtx(opts: { agent?: Record<string, unknown>; hasUI?: boolean; mode?
       notify(message: string) {
         notes.push(message);
       },
+      setStatus(key: string, text: string | undefined) {
+        statuses.push({ key, text });
+      },
       custom(factory: (...a: unknown[]) => { render(w: number): readonly string[]; dispose?(): void }, options: { overlay?: boolean; overlayOptions?: { fullscreen?: boolean } }) {
         custom.factory = factory;
         custom.options = options;
@@ -121,6 +126,7 @@ function makeCtx(opts: { agent?: Record<string, unknown>; hasUI?: boolean; mode?
     theme,
     custom,
     widgets,
+    statuses,
     notes,
     activeMs: () => timers.filter((t) => t.active).map((t) => t.ms),
     fire: (ms: number) => timers.filter((t) => t.active && t.ms === ms).forEach((t) => t.fn()),
@@ -347,15 +353,50 @@ const cmd = idx.commands.get("hud")!;
 
 const M = makeCtx();
 await idx.emit("session_start", {}, M.ctx);
+const wDock = M.widgets.at(-1);
+check("dock is ON by default (aboveEditor, key hud-dock)", wDock?.key === "hud-dock" && typeof wDock.content === "function" && wDock.options?.placement === "aboveEditor", wDock);
+check("status line is written at start", M.statuses.at(-1)?.key === "hud" && M.statuses.at(-1)?.text === "hud ○ ready", M.statuses.at(-1));
+check("idle dock: 500 ms timer", M.activeMs().join() === "500", M.activeMs());
+if (typeof wDock?.content !== "function") throw new Error("no dock widget factory");
+const dock = (wDock.content as (t: unknown, th: unknown) => { render(w: number): readonly string[] })(M.tui, M.theme);
+const dockRows = dock.render(100);
+check("dock render: dockHeightFor rows (medium on a 24-row terminal = 9), width <= 100", dockRows.length === dockHeightFor("medium", 24) && dockRows.length === 9 && dockRows.every((l) => [...l.replace(/\x1b\[[0-9;]*m/g, "")].length <= 100), dockRows.length);
+
+// size / place
+{
+  const placed = (key: string, placement: string): boolean => M.widgets.at(-1)?.key === key && M.widgets.at(-1)?.options?.placement === placement;
+  await cmd.handler("size small", M.ctx);
+  check("/hud size small: note + 6 rows", M.notes.at(-1)?.startsWith("Dock size: small") === true && dock.render(100).length === 6, M.notes.at(-1));
+  await cmd.handler("size huge", M.ctx);
+  check("/hud size huge: usage, size unchanged", M.notes.at(-1) === "Usage: /hud size small|medium|large" && dock.render(100).length === 6, M.notes.at(-1));
+  await cmd.handler("size large", M.ctx);
+  check("/hud size large: capped at 40% of 24 rows = 9", dock.render(100).length === dockHeightFor("large", 24) && dockHeightFor("large", 24) === 9);
+  await cmd.handler("size medium", M.ctx);
+  await cmd.handler("place below", M.ctx);
+  check("/hud place below: dock re-installed belowEditor", placed("hud-dock", "belowEditor") && M.widgets.at(-2)?.content === undefined && M.notes.at(-1) === "Dock place: below the editor", [M.widgets.at(-1), M.notes.at(-1)]);
+  const below = (M.widgets.at(-1)!.content as (t: unknown, th: unknown) => { render(w: number): readonly string[] })(M.tui, M.theme);
+  check("below the editor the dock gets the bottom padding (9 + 1 rows)", below.render(100).length === 10, below.render(100).length);
+  await cmd.handler("place sideways", M.ctx);
+  check("/hud place sideways: usage", M.notes.at(-1) === "Usage: /hud place above|below", M.notes.at(-1));
+  await cmd.handler("place above", M.ctx);
+  check("/hud place above: back above the editor, no padding", placed("hud-dock", "aboveEditor") && M.notes.at(-1) === "Dock place: above the editor", M.notes.at(-1));
+  const above = (M.widgets.at(-1)!.content as (t: unknown, th: unknown) => { render(w: number): readonly string[] })(M.tui, M.theme);
+  check("above the editor the dock has exactly dockHeightFor rows", above.render(100).length === 9, above.render(100).length);
+  await cmd.handler("", M.ctx);
+  check("/hud closes the dock: widget removed, note, no timers", M.widgets.at(-1)?.content === undefined && M.notes.at(-1)?.startsWith("HUD dock: off") === true && M.activeMs().length === 0, [M.notes.at(-1), M.activeMs()]);
+  await cmd.handler("", M.ctx);
+  check("/hud opens it again", placed("hud-dock", "aboveEditor") && M.notes.at(-1) === "HUD dock: on (medium, above the editor)", M.notes.at(-1));
+  await cmd.handler("compact on", M.ctx);
+}
 const w0 = M.widgets.at(-1);
-check("compact widget is ON by default (belowEditor)", w0?.key === "hud" && typeof w0.content === "function" && w0.options?.placement === "belowEditor", w0);
+check("/hud compact on: compact widget (key hud, belowEditor), dock closed", w0?.key === "hud" && typeof w0.content === "function" && w0.options?.placement === "belowEditor" && M.notes.at(-1)?.includes("the dock was closed") === true, w0);
 if (typeof w0?.content !== "function") throw new Error("no compact widget factory");
 // The only known factory signature: (tui, theme) => Component; called with fake objects.
 const widgetFactory = w0.content as (t: unknown, th: unknown) => { render(w: number): readonly string[] };
 const compact = widgetFactory(M.tui, M.theme);
 const rows0 = compact.render(100);
 check("compact render: rows <= width", rows0.length > 0 && rows0.every((l) => /^[^\x1b]*$/.test(l.replace(/\x1b\[[0-9;]*m/g, "")) && [...l.replace(/\x1b\[[0-9;]*m/g, "")].length <= 100), rows0.length);
-check("idle: 500 ms timer", M.activeMs().join() === "500", M.activeMs());
+check("idle compact: 500 ms timer", M.activeMs().join() === "500", M.activeMs());
 
 await idx.emit("agent_start", {}, M.ctx);
 check("agent busy: 125 ms (the old timer is cleared)", M.activeMs().join() === "125", M.activeMs());
@@ -373,6 +414,9 @@ await cmd.handler("help", M.ctx);
 check("/hud help: English help names lang command + env var", M.notes.at(-1)?.includes("/hud demo") === true && M.notes.at(-1)!.includes("commands") && M.notes.at(-1)!.includes("/hud lang") && M.notes.at(-1)!.includes("OMP_HUD_LANG"), M.notes.at(-1));
 await cmd.handler("xyz", M.ctx);
 check("unknown subcommand warns", M.notes.at(-1)?.includes("Unknown subcommand") === true);
+check("/hud help names the dock commands", ["/hud full", "/hud size", "/hud place", "OMP_HUD_SIZE", "OMP_HUD_PLACE", "OMP_HUD_PAD"].every((s) => M.notes.at(-2)?.includes(s)), M.notes.at(-2));
+await cmd.handler("doctor", M.ctx);
+check("/hud doctor: dock, demo, compact, status, screen, store and timer lines; no environment dump", ["omp-hud doctor", "version:", "dock: off", "demo: not running", "compact widget: on", "status line:", "screen: rows 24", "store:", "timer:"].every((s) => M.notes.at(-1)?.includes(s)) && !/CMUX|PATH=|HOME=/.test(M.notes.at(-1) ?? ""), M.notes.at(-1));
 
 // /hud lang: runtime language switch redraws the compact widget
 {
@@ -423,15 +467,30 @@ check("unknown subcommand warns", M.notes.at(-1)?.includes("Unknown subcommand")
   check("detectLang: LC_ALL beats LANG; OMP_HUD_LANG beats locale; bad value ignored", d3 === "en" && d4 === "en" && d5 === "tr" && d6 === "tr", [d3, d4, d5, d6]);
 }
 
+await cmd.handler("status", M.ctx);
+check("/hud status: reports the state", M.notes.at(-1)?.startsWith("HUD status line: on") === true, M.notes.at(-1));
+await cmd.handler("status maybe", M.ctx);
+check("/hud status maybe: usage", M.notes.at(-1) === "Usage: /hud status [on|off]", M.notes.at(-1));
+await cmd.handler("status off", M.ctx);
+check("/hud status off: entry removed", M.statuses.at(-1)?.key === "hud" && M.statuses.at(-1)?.text === undefined && M.notes.at(-1) === "HUD status line: off", M.statuses.at(-1));
 await cmd.handler("compact off", M.ctx);
-check("/hud compact off: widget removed, no timers", M.widgets.at(-1)?.content === undefined && M.activeMs().length === 0, M.activeMs());
+check("/hud compact off: widget removed, no timers", M.widgets.at(-1)?.content === undefined && M.activeMs().length === 0 && M.notes.at(-1) === "Compact HUD: off", M.activeMs());
 await cmd.handler("compact", M.ctx);
-check("/hud compact: toggle turns it on", typeof M.widgets.at(-1)?.content === "function" && M.activeMs().length === 1);
+check("/hud compact: toggle turns it on", typeof M.widgets.at(-1)?.content === "function" && M.activeMs().length === 1 && M.notes.at(-1) === "Compact HUD: on (1-3 lines below the editor)", M.notes.at(-1));
+await cmd.handler("compact on", M.ctx);
+check("/hud compact on while on: already on", M.notes.at(-1) === "Compact HUD: already on (re-applied)", M.notes.at(-1));
 await cmd.handler("compact off", M.ctx);
+await idx.emit("agent_start", {}, M.ctx); // the session_switch above reset the store: busy again for the timer checks below
+await cmd.handler("status on", M.ctx);
+check("/hud status on: text written, status-only busy timer is 500 ms", M.statuses.at(-1)?.text?.startsWith("hud ") === true && M.activeMs().join() === "500", [M.statuses.at(-1), M.activeMs()]);
+await cmd.handler("status on", M.ctx);
+check("/hud status on again: already on", M.notes.at(-1) === "HUD status line: already on", M.notes.at(-1));
+await cmd.handler("status off", M.ctx);
+check("/hud status off: no timers again", M.activeMs().length === 0, M.activeMs());
 
 // full screen (real store)
 {
-  const p = cmd.handler("", M.ctx);
+  const p = cmd.handler("full", M.ctx);
   check("/hud: custom overlay + fullscreen option", M.custom.opened === 1 && M.custom.options?.overlay === true && M.custom.options.overlayOptions?.fullscreen === true, M.custom.options);
   check("full screen: 66 ms", M.activeMs().join() === "66", M.activeMs());
   let closed = false;
@@ -445,11 +504,46 @@ await cmd.handler("compact off", M.ctx);
   check("timers are cleaned up on close", M.activeMs().length === 0 && closed === false, M.activeMs());
 }
 
+// dock again, now with a busy store: timers, demo in the dock, exclusivity with compact
+{
+  const opened = M.custom.opened;
+  await cmd.handler("", M.ctx);
+  check("/hud toggles the dock back on (busy store: 125 ms)", M.widgets.at(-1)?.key === "hud-dock" && M.activeMs().join() === "125", [M.widgets.at(-1)?.key, M.activeMs()]);
+  await cmd.handler("demo", M.ctx);
+  const dockDemo = M.widgets.at(-1);
+  check("/hud demo: runs in the dock, no overlay", M.custom.opened === opened && dockDemo?.key === "hud-dock" && typeof dockDemo.content === "function" && M.notes.at(-1)?.startsWith("Demo running in the dock") === true, M.notes.at(-1));
+  check("demo: dock timer + driver timer", M.activeMs().length === 2 && M.activeMs().includes(125), M.activeMs());
+  const demoDock = (dockDemo!.content as (t: unknown, th: unknown) => { render(w: number): readonly string[] })(M.tui, M.theme);
+  M.fire(100);
+  M.fire(100);
+  check("demo dock renders its own store", demoDock.render(100).length === dockHeightFor("medium", 24));
+  await cmd.handler("demo", M.ctx);
+  check("/hud demo again stops it: driver timer gone, dock back on the real store", M.notes.at(-1) === "Demo stopped" && M.activeMs().join() === "125" && M.widgets.at(-1)?.key === "hud-dock", [M.notes.at(-1), M.activeMs()]);
+  await cmd.handler("demo off", M.ctx);
+  check("/hud demo off without a demo says so", M.notes.at(-1) === "No demo is running", M.notes.at(-1));
+  await cmd.handler("demo nope", M.ctx);
+  check("/hud demo nope: usage", M.notes.at(-1) === "Usage: /hud demo [off|full]", M.notes.at(-1));
+  await cmd.handler("demo", M.ctx);
+  await cmd.handler("", M.ctx);
+  check("/hud while a demo runs: dock and demo are both gone", M.widgets.at(-1)?.content === undefined && M.activeMs().length === 0, [M.widgets.at(-1)?.key, M.activeMs()]);
+  await cmd.handler("demo", M.ctx);
+  await cmd.handler("demo off", M.ctx);
+  check("/hud demo opened the dock only for the demo: demo off closes it again", M.widgets.at(-1)?.key === "hud-dock" && M.widgets.at(-1)?.content === undefined && M.activeMs().length === 0, [M.widgets.at(-1), M.activeMs()]);
+  await cmd.handler("", M.ctx);
+  await cmd.handler("compact on", M.ctx);
+  check("/hud compact on closes the dock", M.notes.at(-1)?.includes("the dock was closed") === true && M.widgets.at(-1)?.key === "hud" && M.widgets.at(-2)?.key === "hud-dock" && M.widgets.at(-2)?.content === undefined, M.notes.at(-1));
+  await cmd.handler("", M.ctx);
+  check("/hud opens the dock and closes compact", M.notes.at(-1)?.includes("the compact panel was closed") === true && M.widgets.at(-1)?.key === "hud-dock" && M.widgets.at(-2)?.key === "hud" && M.widgets.at(-2)?.content === undefined, M.notes.at(-1));
+  await cmd.handler("compact off", M.ctx);
+  check("/hud compact off while compact is off: already off, dock untouched", M.notes.at(-1) === "Compact HUD: already off" && M.widgets.at(-1)?.key === "hud-dock" && M.widgets.at(-1)?.content !== undefined, M.notes.at(-1));
+  await cmd.handler("", M.ctx);
+}
+
 // demo
 {
   const rowsBeforeDemo = compact.render(100).join("\n");
-  const p = cmd.handler("demo", M.ctx);
-  check("/hud demo opens the full screen", M.custom.opened === 2, M.custom.opened);
+  const p = cmd.handler("demo full", M.ctx);
+  check("/hud demo full opens the full screen", M.custom.opened === 2, M.custom.opened);
   const ms = M.activeMs().sort((a, b) => a - b);
   check("demo: driver timer + 66 ms", ms.includes(66) && ms.length === 2, ms);
   const demoFull = M.custom.factory!(M.tui, M.theme, {}, (r: unknown) => M.custom.done!(r));

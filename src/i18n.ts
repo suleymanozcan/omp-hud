@@ -83,18 +83,21 @@ const tr = {
   "status.ctx": "bağlam",
 
   "cmd.description":
-    "omp-hud: /hud, /hud demo, /hud compact [on|off], /hud status [on|off], /hud pad [0-3], /hud lang [tr|en|auto], /hud doctor, /hud help",
+    "omp-hud: /hud, /hud full, /hud size, /hud place, /hud demo, /hud compact, /hud status, /hud pad, /hud lang, /hud doctor, /hud help",
   "cmd.help":
     "omp-hud komutları:\n" +
-    "  /hud              tam ekran HUD (Esc ile çıkış)\n" +
-    "  /hud demo         sahte olay akışıyla tam ekran gösterim\n" +
-    "  /hud compact      editörün altındaki küçük kalıcı paneli aç/kapat (on|off verilebilir)\n" +
+    "  /hud              dock'u editörün yanında aç/kapat (varsayılan; yazmaya devam edebilirsiniz)\n" +
+    "  /hud full         tam ekran HUD (Esc ile çıkış; açıkken yazılamaz)\n" +
+    "  /hud size         dock boyutu: small | medium | large; şimdi {size}\n" +
+    "  /hud place        dock yeri: above | below (editörün üstü | altı); şimdi {place}\n" +
+    "  /hud demo         dock'ta sahte olay akışı (yeniden ya da `off` durdurur; `full` = tam ekran)\n" +
+    "  /hud compact      editörün altında 1-3 satırlık küçük panel: on | off (dock'u kapatır)\n" +
     "  /hud status       alt çubuktaki tek satırlık HUD özeti: on | off (argümansız: durumu göster)\n" +
-    "  /hud pad [0-3]    ekranın altında boş bırakılan satır (küçük panel ve tam ekran); şimdi {pad}\n" +
+    "  /hud pad [0-3]    ekranın altında boş bırakılan satır (editör altı görünümler ve tam ekran); şimdi {pad}\n" +
     "  /hud lang         arayüz dili: tr | en | auto (yalnız bu oturum)\n" +
-    "  /hud doctor       tanı: panel, durum satırı, ekran boyutu, depo, zamanlayıcı\n" +
+    "  /hud doctor       tanı: dock, kompakt panel, durum satırı, ekran boyutu, depo, zamanlayıcı\n" +
     "  /hud help         bu yardım\n" +
-    "Ortam değişkeni: OMP_HUD_LANG=tr|en (başlangıç dili; yoksa LC_ALL/LC_MESSAGES/LANG, yedek en), OMP_HUD_PAD=0-3 (başlangıç boşluğu, varsayılan 1)\n" +
+    "Ortam değişkeni: OMP_HUD_LANG=tr|en, OMP_HUD_SIZE=small|medium|large, OMP_HUD_PLACE=above|below, OMP_HUD_PAD=0-3 (başlangıç değerleri; dil için yedek LC_ALL/LC_MESSAGES/LANG, sonra en)\n" +
     "Ekranın altında bir şey görünmüyor mu? /hud pad 2 ve /hud status on deneyin, sonra /hud doctor.",
   "cmd.compactOn": "Kompakt HUD: açık (editörün altında 1-3 satır)",
   "cmd.compactAlreadyOn": "Kompakt HUD: zaten açık (yeniden uygulandı)",
@@ -110,6 +113,21 @@ const tr = {
   "cmd.padNow": "Alt boşluk: {n} boş satır (küçük panel ve tam ekran HUD)",
   "cmd.padUsage": "Kullanım: /hud pad [0-3]",
   "cmd.demoClosed": "Demo kapandı",
+  "cmd.dockOn": "HUD dock: açık ({size}, {place})",
+  "cmd.dockOnSwitched": "HUD dock: açık ({size}, {place}); kompakt panel kapatıldı",
+  "cmd.dockOff": "HUD dock: kapalı (/hud yeniden açar)",
+  "cmd.dockFailed": "HUD dock başlatılamadı: {err}",
+  "cmd.compactOnSwitched": "Kompakt HUD: açık (editörün altında 1-3 satır); dock kapatıldı",
+  "cmd.sizeNow": "Dock boyutu: {size} (bu terminal yüksekliğinde yaklaşık {rows} satır)",
+  "cmd.sizeUsage": "Kullanım: /hud size small|medium|large",
+  "cmd.placeNow": "Dock yeri: {place}",
+  "cmd.placeUsage": "Kullanım: /hud place above|below",
+  "cmd.demoOn": "Demo dock'ta çalışıyor (/hud demo yeniden ya da /hud demo off durdurur)",
+  "cmd.demoOff": "Demo durdu",
+  "cmd.demoNone": "Çalışan demo yok",
+  "cmd.demoUsage": "Kullanım: /hud demo [off|full]",
+  "place.above": "editörün üstünde",
+  "place.below": "editörün altında",
   "cmd.langNow": "Dil: {lang} ({mode})",
   "cmd.langAuto": "otomatik",
   "cmd.langManual": "elle",
@@ -123,6 +141,10 @@ const tr = {
   "doc.lang": "dil: {lang} ({mode}) · OMP_HUD_LANG={env} · COLORTERM={ct}",
   "doc.mode": "mod: {mode} · arayüz: {ui}",
   "doc.widget": "küçük panel: {state} · setWidget: {call} · bağlandı: {mounted} · çizim: {n}{last}",
+  "doc.dock": "dock: {state} · boyut {size} ({rows} satır) · yer {place} · setWidget: {call} · bağlandı: {mounted} · çizim: {n}{last}",
+  "doc.demo": "demo: {state}",
+  "doc.demoDock": "dock'ta çalışıyor",
+  "doc.demoNone": "çalışmıyor",
   "doc.status": "durum satırı: {state} · setStatus: {call} · yazım: {n} · metin: {text}",
   "doc.screen": "ekran: satır {rows} · sütun {cols} · boşluk {pad} · tam ekran satırı {full} · küçük panel satırı {lines}",
   "doc.store": "depo: v{ver} · çekirdek: {core} ({since}) · düğümler: {nodes} · son olay: {event}",
@@ -137,7 +159,7 @@ const tr = {
   "doc.ok": "tamam {ago}",
   "doc.failed": "hata: {err}",
   "doc.ago": "{s} sn önce",
-  "doc.lastRender": " (son: genişlik {w}, {n} satır)",
+  "doc.lastRender": " (son {w}x{n})",
   "doc.timerRunning": "çalışıyor, {ms} ms ({hz} Hz)",
   "doc.timerStopped": "durdu",
 
@@ -270,18 +292,21 @@ const en: Record<MsgKey, string> = {
   "feed.compactFailed": "compaction failed",
 
   "cmd.description":
-    "omp-hud: /hud, /hud demo, /hud compact [on|off], /hud status [on|off], /hud pad [0-3], /hud lang [tr|en|auto], /hud doctor, /hud help",
+    "omp-hud: /hud, /hud full, /hud size, /hud place, /hud demo, /hud compact, /hud status, /hud pad, /hud lang, /hud doctor, /hud help",
   "cmd.help":
     "omp-hud commands:\n" +
-    "  /hud              full-screen HUD (Esc to close)\n" +
-    "  /hud demo         full-screen showcase with simulated events\n" +
-    "  /hud compact      toggle the small persistent panel below the editor (on|off accepted)\n" +
+    "  /hud              show/hide the dock next to the editor (default; you can keep typing)\n" +
+    "  /hud full         full-screen HUD (Esc to close; no typing while open)\n" +
+    "  /hud size         dock size: small | medium | large; now {size}\n" +
+    "  /hud place        dock place: above | below the editor; now {place}\n" +
+    "  /hud demo         simulated events in the dock (again or `off` stops; `full` = full screen)\n" +
+    "  /hud compact      small 1-3 line panel below the editor: on | off (closes the dock)\n" +
     "  /hud status       one-line HUD summary in the footer status: on | off (no argument: show state)\n" +
-    "  /hud pad [0-3]    blank rows kept free at the bottom (compact panel and full screen); now {pad}\n" +
+    "  /hud pad [0-3]    blank rows kept free at the bottom (below-editor views and full screen); now {pad}\n" +
     "  /hud lang         interface language: tr | en | auto (this session only)\n" +
-    "  /hud doctor       diagnostics: widget, status line, screen size, store, timer\n" +
+    "  /hud doctor       diagnostics: dock, compact, status line, screen size, store, timer\n" +
     "  /hud help         this help\n" +
-    "Environment: OMP_HUD_LANG=tr|en (initial language; else LC_ALL/LC_MESSAGES/LANG, fallback en), OMP_HUD_PAD=0-3 (initial pad, default 1)\n" +
+    "Environment: OMP_HUD_LANG=tr|en, OMP_HUD_SIZE=small|medium|large, OMP_HUD_PLACE=above|below, OMP_HUD_PAD=0-3 (initial values; language falls back to LC_ALL/LC_MESSAGES/LANG, then en)\n" +
     "Nothing visible at the bottom of the screen? Try /hud pad 2 and /hud status on, then /hud doctor.",
   "cmd.compactOn": "Compact HUD: on (1-3 lines below the editor)",
   "cmd.compactAlreadyOn": "Compact HUD: already on (re-applied)",
@@ -297,6 +322,21 @@ const en: Record<MsgKey, string> = {
   "cmd.padNow": "Bottom padding: {n} blank row(s) (compact panel and full-screen HUD)",
   "cmd.padUsage": "Usage: /hud pad [0-3]",
   "cmd.demoClosed": "Demo closed",
+  "cmd.dockOn": "HUD dock: on ({size}, {place})",
+  "cmd.dockOnSwitched": "HUD dock: on ({size}, {place}); the compact panel was closed",
+  "cmd.dockOff": "HUD dock: off (/hud opens it again)",
+  "cmd.dockFailed": "HUD dock failed to start: {err}",
+  "cmd.compactOnSwitched": "Compact HUD: on (1-3 lines below the editor); the dock was closed",
+  "cmd.sizeNow": "Dock size: {size} (about {rows} rows at this terminal height)",
+  "cmd.sizeUsage": "Usage: /hud size small|medium|large",
+  "cmd.placeNow": "Dock place: {place}",
+  "cmd.placeUsage": "Usage: /hud place above|below",
+  "cmd.demoOn": "Demo running in the dock (/hud demo again or /hud demo off stops it)",
+  "cmd.demoOff": "Demo stopped",
+  "cmd.demoNone": "No demo is running",
+  "cmd.demoUsage": "Usage: /hud demo [off|full]",
+  "place.above": "above the editor",
+  "place.below": "below the editor",
   "cmd.langNow": "Language: {lang} ({mode})",
   "cmd.langAuto": "auto",
   "cmd.langManual": "manual",
@@ -310,6 +350,10 @@ const en: Record<MsgKey, string> = {
   "doc.lang": "language: {lang} ({mode}) · OMP_HUD_LANG={env} · COLORTERM={ct}",
   "doc.mode": "mode: {mode} · ui: {ui}",
   "doc.widget": "compact widget: {state} · setWidget: {call} · mounted: {mounted} · renders: {n}{last}",
+  "doc.dock": "dock: {state} · size {size} ({rows} rows) · place {place} · setWidget: {call} · mounted: {mounted} · renders: {n}{last}",
+  "doc.demo": "demo: {state}",
+  "doc.demoDock": "running in the dock",
+  "doc.demoNone": "not running",
   "doc.status": "status line: {state} · setStatus: {call} · writes: {n} · text: {text}",
   "doc.screen": "screen: rows {rows} · columns {cols} · pad {pad} · full-screen rows {full} · compact lines {lines}",
   "doc.store": "store: v{ver} · core: {core} ({since}) · nodes: {nodes} · last event: {event}",
@@ -324,7 +368,7 @@ const en: Record<MsgKey, string> = {
   "doc.ok": "ok {ago}",
   "doc.failed": "failed: {err}",
   "doc.ago": "{s}s ago",
-  "doc.lastRender": " (last: width {w}, {n} lines)",
+  "doc.lastRender": " (last {w}x{n})",
   "doc.timerRunning": "running, {ms} ms ({hz} Hz)",
   "doc.timerStopped": "stopped",
 
