@@ -112,7 +112,9 @@ export interface HudStore {
 
 // --- Cross-module exports (signatures are stable) ---
 // src/render/orbit-scene.ts : export function renderOrbitScene(state: HudState, width: number, height: number, theme: HudTheme): string[]
-//    (exactly `height` rows, every row at most `width` cells wide; core in the center, node orbit around it)
+//    (the dock scene: exactly `height` rows, every row at most `width` cells wide; core in the center, node orbit around it)
+// src/render/full-scene.ts  : export function renderFullScene(state: HudState, width: number, height: number, theme: HudTheme, opts?: { selectedId?: string }): string[]
+//    (the full-screen scene: same row/width contract, plus node labels; used by layout.ts through ComposeOptions.orbit)
 // src/components/full-hud.ts    : export class FullHud (omp Component)   constructor(store: HudStore, theme: HudTheme, requestRender: () => void, close: () => void, getRows?: () => number, bridge?: ChatBridge)
 // src/components/compact-hud.ts : export class CompactHud (omp Component) constructor(store: HudStore, theme: HudTheme)
 // src/store.ts : export function createStore(): HudStore
