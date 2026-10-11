@@ -17,6 +17,16 @@ const host = globalThis as unknown as {
   clearInterval(h: unknown): void;
 };
 
+/** Fake omp commands for the palette of `--live` (omp's real list comes from its autocomplete provider). */
+const PREVIEW_COMMANDS = [
+  { value: "plan", label: "/plan", description: "Plan: off" },
+  { value: "tools", label: "/tools", description: "Tools: 12 active / 22 available" },
+  { value: "todo", label: "/todo", description: "Show the task list", argumentHint: "[edit]" },
+  { value: "usage", label: "/usage", description: "Provider usage and limits" },
+  { value: "model", label: "/model", description: "Select the model", argumentHint: "[name]" },
+  { value: "new", label: "/new", description: "Start a new session" },
+];
+
 const HELP = `HUD preview (no omp needed)
 
 Usage:
@@ -378,6 +388,16 @@ async function runLive(args: Args): Promise<void> {
   const hud = new L.FullHud(store, theme, () => {}, () => quit(0), () => reqRows, {
     send: (text) => void store.addChat({ role: "user", text }),
     command: () => {},
+    runLine: async (text) => {
+      store.addChat({ role: "system", text: `(preview) would run in omp: ${text}` });
+      return "ran";
+    },
+    // A few fake command items so the palette can be tried in --live.
+    suggest: async (text) => {
+      const items = PREVIEW_COMMANDS.filter((c) => text.startsWith("/") && c.value.startsWith(text.slice(1).split(" ")[0]!)).map((c) => ({ ...c, raw: c }));
+      return items.length > 0 ? { items, prefix: text } : null;
+    },
+    apply: (_text, _cursor, item) => ({ text: `/${item.value} `, cursor: item.value.length + 2 }),
   });
   p.on("exit", restore);
   p.on("SIGINT", () => quit(0));

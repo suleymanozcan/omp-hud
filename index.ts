@@ -2,7 +2,7 @@
 // Default view: the dock, a short panel next to the editor (you keep typing). Commands: /hud (dock on/off),
 // /hud full (full screen with a conversation panel and a prompt: write to omp without leaving it), /hud size, /hud place, /hud demo [off|full], /hud compact [on|off], /hud status [on|off],
 // /hud pad [0-3], /hud lang [tr|en|auto], /hud doctor, /hud help.
-import type { ExtensionAPI, ExtensionContext, RegisteredCommand, Theme } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, OverlayHandle, RegisteredCommand, Theme } from "@oh-my-pi/pi-coding-agent";
 import type { Component, TUI } from "@oh-my-pi/pi-tui";
 import pkg from "./package.json" with { type: "json" };
 import { attachCollector } from "./src/collector.ts";
@@ -12,7 +12,7 @@ import { FullHud } from "./src/components/full-hud.ts";
 import { PaddedComponent } from "./src/components/padded.ts";
 import { DemoDriver } from "./src/demo.ts";
 import { createStore } from "./src/store.ts";
-import type { ChatBridge } from "./src/chat.ts";
+import { sanitizeChatText, type ChatBridge } from "./src/chat.ts";
 import type { HudStore, HudTheme } from "./src/types.ts";
 import { getLang, isLangAuto, setLang, t } from "./src/i18n.ts";
 import { ct } from "./src/chat-i18n.ts";
@@ -22,10 +22,26 @@ import { dockIsAnimated } from "./src/render/dock.ts";
 import { fmtDur } from "./src/render/fmt.ts";
 import { getPad, parsePad, setPad } from "./src/pad.ts";
 import { nodeCounts, statusIsAnimated, statusLineText, STATUS_MAX_COLS } from "./src/status-text.ts";
+import {
+  applySuggestion,
+  asBase,
+  commandIsKnown,
+  commandName,
+  findEditor,
+  isUserKey,
+  lineKind,
+  querySuggestions,
+  routeThroughEditor,
+  type BaseProvider,
+  type LineKind,
+  type RouteEnv,
+  type RouteResult,
+} from "./src/slash.ts";
 
 const COMPACT_KEY = "hud";
 const DOCK_KEY = "hud-dock";
 const STATUS_KEY = "hud";
+const RESUME_KEY = "hud-resume";
 const FULL_MS = 66; // ~15 fps
 const VISIBLE_BUSY_MS = 125; // dock / compact while something is going on, ~8 fps
 const DOCK_IDLE_MS = 250; // dock while idle, 4 fps (the idle core breathes and placeholder sparkles orbit)
@@ -73,6 +89,11 @@ interface HudRuntime {
   demo?: { store: HudStore; driver: DemoDriver }; // simulated events shown in the dock instead of the real store
   wasAnimated: boolean;
   fullOpen: boolean;
+  fullHandle?: OverlayHandle; // the mounted full-screen overlay: hiding it hands the focus back to omp's editor
+  base?: BaseProvider; // omp's autocomplete provider (captured through addAutocompleteProvider)
+  autocompleteRegistered: boolean;
+  cmdBusy: boolean; // a /command, !shell or $ python line is being run through omp's editor
+  lastLine?: { kind: LineKind; res: RouteResult; at: number }; // the last such line (for /hud doctor)
   fullStore?: HudStore;
   fullTui?: TUI;
   unsubStore?: () => void;
@@ -93,6 +114,8 @@ const hud: HudRuntime = {
   compact: newWidget(),
   wasAnimated: false,
   fullOpen: false,
+  autocompleteRegistered: false,
+  cmdBusy: false,
   statusWanted: true,
   statusOn: false,
   statusText: "",
@@ -434,20 +457,26 @@ async function openFull(
       bridge,
     );
   };
+  const onHandle = (handle: OverlayHandle): void => {
+    hud.fullHandle = handle;
+  };
   try {
     try {
       await ctx.ui.custom<undefined>(factory, {
         overlay: true,
         overlayOptions: { ...FULL_OVERLAY, fullscreen: true },
+        onHandle,
       });
     } catch {
       // `fullscreen` is an undocumented field: fall back to a normal overlay if a new version breaks it
       await ctx.ui.custom<undefined>(factory, {
         overlay: true,
         overlayOptions: { ...FULL_OVERLAY, fullscreen: false },
+        onHandle,
       });
     }
   } finally {
+    hud.fullHandle = undefined;
     hud.fullOpen = false;
     hud.fullStore = undefined;
     hud.fullTui = undefined;
@@ -457,6 +486,67 @@ async function openFull(
       reschedule(real);
     }
   }
+}
+
+/** What the editor route needs from omp, bound to the mounted full-screen overlay `handle`. */
+function routeEnv(ctx: ExtensionContext, handle: OverlayHandle): RouteEnv {
+  return {
+    tui: () => hud.fullTui,
+    getText: () => ctx.ui.getEditorText(),
+    setText: (text) => ctx.ui.setEditorText(text),
+    hide: () => handle.setHidden(true),
+    show: () => {
+      handle.setHidden(false);
+      hud.fullTui?.requestRender();
+    },
+    alive: () => hud.fullOpen && hud.fullHandle === handle,
+    sleep: (ms) => new Promise<void>((resolve) => void setTimeout(resolve, ms)),
+    pause(onKey) {
+      let off: (() => void) | undefined;
+      const cancel = (): void => {
+        off?.();
+        off = undefined;
+        try {
+          ctx.ui.setStatus(RESUME_KEY, undefined);
+        } catch {
+          // the status line may already be gone
+        }
+      };
+      try {
+        ctx.ui.setStatus(RESUME_KEY, ct("slash.resume"));
+        off = ctx.ui.onTerminalInput((data) => {
+          if (!isUserKey(data)) return undefined;
+          cancel();
+          onKey();
+          return { consume: true }; // the key that brings the HUD back is not typed into the editor
+        });
+      } catch {
+        // without a key listener nothing could ever bring the HUD back: return at once
+        cancel();
+        onKey();
+      }
+      return cancel;
+    },
+  };
+}
+
+/** `/hud doctor` line about the slash-command route: editor found, autocomplete provider, the last command. */
+function slashDoctorLine(): string {
+  const yn = (b: boolean): string => (b ? t("doc.yes") : t("doc.no"));
+  const tui = hud.fullTui ?? hud.dock.tui ?? hud.compact.tui;
+  const found = tui ? findEditor(tui) : undefined;
+  const editor = found ? `${yn(found.editor !== undefined)} (${found.via})` : t("doc.unknown");
+  const base = hud.base ? yn(true) : `${yn(false)} (${hud.autocompleteRegistered ? t("doc.on") : t("doc.off")})`;
+  const last = hud.lastLine;
+  const lastText = last
+    ? ct("slash.last", {
+        kind: last.kind,
+        via: last.res.via,
+        result: last.res.error ?? (last.res.paused ? ct("slash.focusKept") : last.res.left ? ct("slash.focusLeft") : "ok"),
+        ms: last.res.ms,
+      })
+    : ct("slash.none");
+  return ct("slash.doctor", { editor, base, last: lastText });
 }
 
 async function runFullDemo(ctx: ExtensionContext, real: HudStore, bridgeFor: (target: HudStore) => ChatBridge): Promise<void> {
@@ -545,6 +635,7 @@ function doctorText(ctx: ExtensionContext, store: HudStore): string {
     t("doc.timer", {
       timer: hud.interval > 0 ? t("doc.timerRunning", { ms: hud.interval, hz }) : t("doc.timerStopped"),
     }),
+    slashDoctorLine(),
   ];
   return lines.join("\n");
 }
@@ -584,6 +675,19 @@ export default function hudExtension(pi: ExtensionAPI): void {
     }
   };
   pi.on("session_start", bootView);
+  // omp's own autocomplete provider (the base the command palette reads); the registration cannot be undone, so once per process.
+  pi.on("session_start", (_event, ctx) => {
+    try {
+      if (hud.autocompleteRegistered || ctx.agent?.kind === "sub" || !isTui(ctx) || typeof ctx.ui.addAutocompleteProvider !== "function") return;
+      hud.autocompleteRegistered = true;
+      ctx.ui.addAutocompleteProvider((base) => {
+        hud.base = asBase(base);
+        return base;
+      });
+    } catch {
+      hud.autocompleteRegistered = false;
+    }
+  });
   pi.on("session_switch", bootView);
 
   pi.on("session_shutdown", (_event, ctx) => {
@@ -609,6 +713,7 @@ export default function hudExtension(pi: ExtensionAPI): void {
         w.tui = undefined;
       }
       hud.fullOpen = false;
+      hud.fullHandle = undefined;
       hud.ctx = undefined;
     } catch {
       // swallow
@@ -838,6 +943,51 @@ export default function hudExtension(pi: ExtensionAPI): void {
           },
         });
         void hudCommand.handler(args, local);
+      },
+      async runLine(text) {
+        if (demo) {
+          target.addChat({ role: "user", text });
+          say(ct("chat.demoReply"));
+          return "ran";
+        }
+        if (hud.cmdBusy) {
+          say(ct("chat.cmdBusy"));
+          return "refused";
+        }
+        hud.cmdBusy = true;
+        try {
+          const kind = lineKind(text);
+          if (kind === "command") {
+            const name = commandName(text);
+            // omp sends an unknown /x to the model as plain text: refuse it here, where it costs nothing.
+            if ((await commandIsKnown(hud.base, name)) === false) {
+              say(ct("chat.unknownCommand", { name }));
+              return "refused";
+            }
+          }
+          const handle = hud.fullHandle;
+          if (!handle) {
+            say(ct("chat.cmdNoHandle"));
+            return "refused";
+          }
+          const res = await routeThroughEditor(routeEnv(ctx, handle), text);
+          hud.lastLine = { kind, res, at: Date.now() };
+          hud.fullTui?.requestRender();
+          if (!res.ok) {
+            say(res.error === "no-editor" ? ct("chat.cmdNoEditor") : res.error === "submit-disabled" ? ct("chat.cmdSubmitOff") : ct("chat.cmdFailed", { err: res.detail ?? "?" }));
+            return "refused";
+          }
+          say(ct("chat.cmdRan", { line: sanitizeChatText(text).slice(0, 80) }));
+          return "ran";
+        } finally {
+          hud.cmdBusy = false;
+        }
+      },
+      async suggest(text, cursor, signal) {
+        return demo || !hud.base ? null : querySuggestions(hud.base, text, cursor, signal);
+      },
+      apply(text, cursor, item, prefix) {
+        return hud.base ? applySuggestion(hud.base, text, cursor, item, prefix) : undefined;
       },
     };
   }

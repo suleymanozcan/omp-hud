@@ -4,6 +4,9 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { detectLang, getLang, isLangAuto, setLang } from "../src/i18n.ts";
 import { installPiTuiShim } from "./shim-pi-tui.ts";
 import { FEED_MAX, MAX_NODES, type HudStore } from "../src/types.ts";
+import type { ChatBridge, Suggestion } from "../src/chat.ts";
+import * as slash from "../src/slash.ts";
+import type { RouteEnv } from "../src/slash.ts";
 
 setLang("en"); // assertions below pin English; the Turkish side is covered in the /hud lang block
 installPiTuiShim();
@@ -84,7 +87,46 @@ function makeCtx(opts: { agent?: Record<string, unknown>; hasUI?: boolean; mode?
   const widgets: Array<{ key: string; content: unknown; options?: { placement?: string } }> = [];
   const notes: string[] = [];
   const statuses: Array<{ key: string; text: string | undefined }> = [];
-  const tui = { renders: 0, requestRender() { this.renders++; }, terminal: { rows: 24, columns: 100 } };
+  // The part of omp's TUI that the slash route touches: an editor, a focus (HUD while visible, the editor or a dialog while hidden) and the overlay handle.
+  const focus: { hidden: boolean; dialog?: unknown; hideCalls: number; showCalls: number } = { hidden: false, hideCalls: 0, showCalls: 0 };
+  const editor = {
+    text: "",
+    submitted: [] as string[],
+    disableSubmit: false,
+    onSubmit: undefined as undefined | (() => void),
+    submit() {
+      this.submitted.push(this.text);
+      this.text = "";
+      this.onSubmit?.();
+    },
+    setText(t: string) {
+      this.text = t;
+    },
+    getText() {
+      return this.text;
+    },
+  };
+  const handle = {
+    hide() {},
+    setHidden(h: boolean) {
+      focus.hidden = h;
+      if (h) focus.hideCalls++;
+      else focus.showCalls++;
+    },
+    isHidden: () => focus.hidden,
+  };
+  const providers: Array<(base: unknown) => unknown> = [];
+  const keyListeners: Array<(d: string) => { consume?: boolean } | undefined> = [];
+  const tui = {
+    renders: 0,
+    requestRender() {
+      this.renders++;
+    },
+    terminal: { rows: 24, columns: 100 },
+    getFocused: (): unknown => (focus.hidden ? (focus.dialog ?? editor) : "hud-component"),
+    hasOverlay: (): boolean => !focus.hidden || focus.dialog !== undefined,
+    children: [{ children: [{ children: [editor] }] }] as unknown[],
+  };
   const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t };
   const custom: { factory?: (...a: unknown[]) => { render(w: number): readonly string[]; dispose?(): void }; done?: (r: unknown) => void; options?: { overlay?: boolean; overlayOptions?: { fullscreen?: boolean } }; opened: number } = { opened: 0 };
   const idle = { value: true };
@@ -114,10 +156,25 @@ function makeCtx(opts: { agent?: Record<string, unknown>; hasUI?: boolean; mode?
       notify(message: string) {
         notes.push(message);
       },
+      getEditorText: () => editor.text,
+      setEditorText: (text: string) => {
+        editor.text = text;
+      },
+      addAutocompleteProvider: (factory: (base: unknown) => unknown) => {
+        providers.push(factory);
+      },
+      onTerminalInput: (listener: (d: string) => { consume?: boolean } | undefined) => {
+        keyListeners.push(listener);
+        return () => {
+          const i = keyListeners.indexOf(listener);
+          if (i >= 0) keyListeners.splice(i, 1);
+        };
+      },
       setStatus(key: string, text: string | undefined) {
         statuses.push({ key, text });
       },
-      custom(factory: (...a: unknown[]) => { render(w: number): readonly string[]; dispose?(): void }, options: { overlay?: boolean; overlayOptions?: { fullscreen?: boolean } }) {
+      custom(factory: (...a: unknown[]) => { render(w: number): readonly string[]; dispose?(): void }, options: { overlay?: boolean; overlayOptions?: { fullscreen?: boolean }; onHandle?: (h: unknown) => void }) {
+        options.onHandle?.(handle);
         custom.factory = factory;
         custom.options = options;
         custom.opened++;
@@ -133,6 +190,15 @@ function makeCtx(opts: { agent?: Record<string, unknown>; hasUI?: boolean; mode?
     tui,
     theme,
     custom,
+    editor,
+    focus,
+    handle,
+    providers,
+    key: (data: string): boolean => {
+      for (const l of [...keyListeners]) if (l(data)?.consume) return true;
+      return false;
+    },
+    keyListeners: () => keyListeners.length,
     widgets,
     statuses,
     notes,
@@ -1012,7 +1078,18 @@ console.log("[chat: full screen component]");
   const sent: Array<[string, string]> = [];
   const cmds: string[] = [];
   let closed = 0;
-  const hud = new FullHud(s, noTheme, () => {}, () => closed++, () => 30, { send: (t, mode) => void sent.push([t, mode]), command: (a) => void cmds.push(a) });
+  const ran: string[] = [];
+  let refuse = false;
+  const hud = new FullHud(s, noTheme, () => {}, () => closed++, () => 30, {
+    send: (t, mode) => void sent.push([t, mode]),
+    command: (a) => void cmds.push(a),
+    runLine: async (t) => {
+      ran.push(t);
+      return refuse ? "refused" : "ran";
+    },
+    suggest: async () => null,
+    apply: () => undefined,
+  });
   const type = (str: string) => {
     for (const ch of str) hud.handleInput(ch);
   };
@@ -1041,7 +1118,26 @@ console.log("[chat: full screen component]");
   check("/hud alone runs the toggle locally", cmds.at(-1) === "");
   type("/plan now");
   hud.handleInput("\r");
-  check("another slash command is refused with a hint, nothing is sent, the text stays", sent.length === 2 && cmds.length === 2 && screen().includes("only /hud ... works") && screen().includes("❯ /plan now"));
+  await sleep(5);
+  check("another /command goes to omp (runLine), never to the agent and never to the local /hud handler", ran.join() === "/plan now" && sent.length === 2 && cmds.length === 2, [ran, sent.length, cmds.length]);
+  type("!echo hi");
+  hud.handleInput("\r");
+  type("$ print(1)");
+  hud.handleInput("\r");
+  await sleep(5);
+  check("!shell and $ python lines go to omp too, not to the model", ran.join("|") === "/plan now|!echo hi|$ print(1)" && sent.length === 2, [ran, sent.length]);
+  type("$5 is a price");
+  hud.handleInput("\r");
+  check("a `$5 ...` text is a plain message (a `$` needs a space to mean python)", sent.length === 3 && sent[2]![0] === "$5 is a price" && ran.length === 3, [sent, ran]);
+  refuse = true;
+  type("/nope");
+  hud.handleInput("\r");
+  await sleep(5);
+  check("a refused line (unknown command) is put back into the prompt, nothing is sent", ran.at(-1) === "/nope" && sent.length === 3 && screen().includes("❯ /nope"));
+  hud.handleInput("\x1b");
+  hud.handleInput("\x15");
+  refuse = false;
+  type("/plan now");
   hud.handleInput("\x1b");
   check("Esc clears a non-empty prompt first", closed === 0 && screen().includes("type a message"));
   type("qc");
@@ -1069,6 +1165,272 @@ console.log("[chat: full screen component]");
   hud.handleInput("\x1b");
   check("Esc with an empty prompt and no details closes the HUD", closed === 1);
   hud.dispose?.();
+}
+
+/** A stand-in for omp's autocomplete provider: `/name` completion by substring, results shaped like omp's. */
+function makeSlashBase() {
+  let applied = 0;
+  const names = ["plan", "tools", "ping", "skill:demo"];
+  const base = {
+    async getSuggestions(lines: string[], _line: number, _col: number) {
+      const text = lines[0]!;
+      if (!text.startsWith("/") || text.includes(" ")) return null;
+      const hits = names.filter((n) => n.includes(text.slice(1).toLowerCase()));
+      return hits.length > 0 ? { prefix: text, items: hits.map((n) => ({ value: n, label: `/${n}`, description: n === "tools" ? "Tools: 12 active / 22 available" : `about ${n}` })) } : null;
+    },
+    applyCompletion(_lines: string[], _line: number, _col: number, item: { value: string }) {
+      return { lines: [`/${item.value} `], cursorLine: 0, cursorCol: item.value.length + 2, onApplied: () => void applied++ };
+    },
+  };
+  return { base, applied: () => applied };
+}
+
+console.log("[slash: classifying, completion, editor route]");
+{
+  const kinds = [["/hud", "hud"], ["/HUD full", "hud"], ["/hudson", "command"], ["/plan now", "command"], ["/", "command"], ["!ls", "shell"], ["!!ls", "shell"], ["$ print(1)", "python"], ["$", "python"], ["$5 total", "text"], ["hello /plan", "text"]] as const;
+  check("lineKind: /hud local, other / commands, ! shell, `$ ` python, the rest text", kinds.every(([line, kind]) => slash.lineKind(line) === kind), kinds.filter(([l, k]) => slash.lineKind(l) !== k));
+  check("commandName", slash.commandName("/ping x y") === "ping" && slash.commandName("/skill:demo a") === "skill:demo" && slash.commandName("/") === "");
+  check("wantsPalette: a leading / or an @ mention at the cursor, never for ! or $ lines", slash.wantsPalette("/to", 3) && slash.wantsPalette("see @sr", 7) && !slash.wantsPalette("see @sr more", 12) && !slash.wantsPalette("hello", 5) && !slash.wantsPalette("!ls @x", 6) && !slash.wantsPalette("$ x", 3));
+  check("isUserKey ignores focus reports, mouse reports and terminal answers", slash.isUserKey("x") && slash.isUserKey("\r") && slash.isUserKey("\x1b[A") && !slash.isUserKey("\x1b[I") && !slash.isUserKey("\x1b[<0;1;1M") && !slash.isUserKey("\x1b[?1;2c") && !slash.isUserKey(""));
+
+  const raw = { prefix: "/to", items: [{ value: "tools", label: "/tools", description: "Tools: 12", argumentHint: "<x>", extra: 1 }, { value: "todo" }, { label: "no value" }, 7] };
+  const norm = slash.normalizeSuggestions(raw);
+  check("normalizeSuggestions keeps usable items, defaults the label, keeps the raw item", norm?.items.length === 2 && norm.items[0]!.argumentHint === "<x>" && norm.items[1]!.label === "todo" && norm.items[0]!.raw === raw.items[0] && norm.prefix === "/to", norm);
+  check("normalizeSuggestions: empty or malformed -> null", slash.normalizeSuggestions(null) === null && slash.normalizeSuggestions({ items: [] }) === null && slash.normalizeSuggestions({ items: "x" }) === null);
+
+  const { base, applied } = makeSlashBase();
+  check("asBase needs both methods", slash.asBase(base) === base && slash.asBase({ getSuggestions() {} }) === undefined && slash.asBase(null) === undefined);
+  check("commandIsKnown: known, unknown, skill, case-insensitive, empty", (await slash.commandIsKnown(base, "ping")) === true && (await slash.commandIsKnown(base, "PLAN")) === true && (await slash.commandIsKnown(base, "skill:demo")) === true && (await slash.commandIsKnown(base, "to")) === false && (await slash.commandIsKnown(base, "xyz")) === false && (await slash.commandIsKnown(base, "")) === false);
+  check("commandIsKnown: no provider -> undefined (cannot tell); a throwing provider too", (await slash.commandIsKnown(undefined, "ping")) === undefined && (await slash.commandIsKnown({ getSuggestions() { throw new Error("x"); }, applyCompletion() { return null; } }, "ping")) === undefined);
+  const q = await slash.querySuggestions(base, "/to", 3);
+  const done = slash.applySuggestion(base, "/to", 3, q!.items[0]!, q!.prefix);
+  check("applySuggestion: the provider's text and cursor; onApplied is called", done?.text === "/tools " && done.cursor === 7 && applied() === 1, done);
+  check("applySuggestion: an unusable result -> undefined", slash.applySuggestion({ getSuggestions() { return null; }, applyCompletion() { return 5; } }, "/x", 2, q!.items[0]!, "/x") === undefined);
+
+  const ed = { submit() {}, setText() {}, getText: () => "" };
+  const cyc: { children: unknown[] } = { children: [] };
+  cyc.children.push(cyc);
+  check("findEditor: the focused component when it looks like an editor", slash.findEditor({ getFocused: () => ed }).editor === ed && slash.findEditor({ getFocused: () => ed }).via === "focused");
+  check("findEditor: else a walk through children; none when absent, cyclic or throwing", slash.findEditor({ getFocused: () => ({}), children: [{ children: [{ children: [ed] }] }] }).via === "tree" && slash.findEditor({ children: [{}] }).via === "none" && slash.findEditor({ children: [cyc] }).via === "none" && slash.findEditor(undefined).via === "none" && slash.findEditor({ getFocused() { throw new Error("x"); } }).via === "none");
+
+  // A scripted environment: `sleep` advances a poll counter instead of waiting.
+  const mkEnv = (o: { draft?: string; noEditor?: boolean; disable?: boolean; leaveAt?: number; backAt?: number; closeAt?: number; keyAt?: number; failSet?: boolean; pauseFails?: boolean } = {}) => {
+    const log: string[] = [];
+    let polls = 0;
+    let text = o.draft ?? "";
+    let hidden = false;
+    let keyCb: (() => void) | undefined;
+    const editor = {
+      disableSubmit: o.disable === true,
+      submit() {
+        log.push(`submit:${text}`);
+        text = "";
+      },
+      setText(t: string) {
+        if (o.failSet && t.startsWith("/")) throw new Error("set failed");
+        text = t;
+      },
+      getText: () => text,
+    };
+    const tui = {
+      getFocused: (): unknown => (o.noEditor ? {} : !hidden ? "hud" : polls >= (o.leaveAt ?? Infinity) && polls < (o.backAt ?? Infinity) ? {} : editor),
+      hasOverlay: () => !hidden,
+      children: [] as unknown[],
+    };
+    const env: RouteEnv = {
+      tui: () => tui,
+      getText: () => text,
+      setText: (t) => editor.setText(t),
+      hide: () => {
+        hidden = true;
+        log.push("hide");
+      },
+      show: () => {
+        hidden = false;
+        log.push("show");
+      },
+      alive: () => o.closeAt === undefined || polls < o.closeAt,
+      sleep: async () => {
+        polls++;
+        if (o.keyAt !== undefined && polls === o.keyAt) keyCb?.();
+      },
+      pause: (onKey) => {
+        log.push("pause");
+        if (o.pauseFails) {
+          onKey();
+          return () => {};
+        }
+        keyCb = onKey;
+        return () => {
+          log.push("unpause");
+          keyCb = undefined;
+        };
+      },
+    };
+    return { env, log, text: () => text, hidden: () => hidden };
+  };
+  {
+    const m = mkEnv({ draft: "my draft", keyAt: 8 });
+    const res = await slash.routeThroughEditor(m.env, "/dirs");
+    check("route: hide, submit, pause (focus kept), a key shows the HUD, the draft comes back", m.log.slice(0, 3).join() === "hide,submit:/dirs,pause" && m.log.at(-1) === "show" && res.ok && res.paused && !res.left && m.text() === "my draft" && !m.hidden(), [m.log, res]);
+  }
+  {
+    const m = mkEnv({ draft: "d2", leaveAt: 2, backAt: 6 });
+    const res = await slash.routeThroughEditor(m.env, "/tools");
+    check("route: a viewer took the focus -> no pause, the HUD returns when the focus is back", res.ok && res.left && !res.paused && m.log.join() === "hide,submit:/tools,show" && m.text() === "d2", [m.log, res]);
+  }
+  {
+    const m = mkEnv({ leaveAt: 6, backAt: 9 });
+    const res = await slash.routeThroughEditor(m.env, "/dlg");
+    check("route: a dialog that opens after the pause started cancels the pause and waits for the focus", res.left && !res.paused && m.log.join() === "hide,submit:/dlg,pause,unpause,show", [m.log, res]);
+  }
+  {
+    const m = mkEnv({ noEditor: true });
+    const res = await slash.routeThroughEditor(m.env, "/x");
+    check("route: no editor -> error, nothing submitted, the HUD is visible again", !res.ok && res.error === "no-editor" && m.log.join() === "hide,show", [m.log, res]);
+  }
+  {
+    const m = mkEnv({ disable: true });
+    const res = await slash.routeThroughEditor(m.env, "/x");
+    check("route: submit disabled -> error, nothing submitted, the HUD is visible again", !res.ok && res.error === "submit-disabled" && m.log.join() === "hide,show", [m.log, res]);
+  }
+  {
+    const m = mkEnv({ failSet: true, draft: "keep" });
+    const res = await slash.routeThroughEditor(m.env, "/x");
+    check("route: setText throwing -> error with the message, the draft stays, the HUD is visible again", !res.ok && res.error === "failed" && res.detail === "set failed" && m.log.join() === "hide,show" && m.text() === "keep", [m.log, res]);
+  }
+  {
+    const m = mkEnv({ closeAt: 3 });
+    const res = await slash.routeThroughEditor(m.env, "/x");
+    check("route: the HUD was closed meanwhile -> it is not shown again", res.ok && m.log.join() === "hide,submit:/x", [m.log, res]);
+  }
+  {
+    const m = mkEnv({ pauseFails: true });
+    const res = await slash.routeThroughEditor(m.env, "/x");
+    check("route: when no key listener can be installed the HUD returns at once (never stuck hidden)", res.ok && !m.hidden() && m.log.at(-1) === "show", [m.log, res]);
+  }
+}
+
+console.log("[slash: command palette]");
+{
+  const s = createStore();
+  const sent: string[] = [];
+  const ran: string[] = [];
+  const queries: string[] = [];
+  let closed = 0;
+  const sugg = (o: { value: string; label: string; description?: string; argumentHint?: string }): Suggestion => ({ ...o, raw: o });
+  const catalog = ["plan", "plugins", "ping", "tools", "todo", "effort", "usage", "model", "new", "session", "settings", "hotkeys"].map((n) => ({ value: n, label: `/${n}`, description: `about ${n}`, ...(n === "todo" ? { argumentHint: "[edit]" } : {}) }));
+  const bridge: ChatBridge = {
+    send: (t) => void sent.push(t),
+    command: () => {},
+    runLine: async (t) => {
+      ran.push(t);
+      return "ran";
+    },
+    async suggest(text, cursor) {
+      queries.push(text);
+      if (text === "/p") await sleep(25); // the answer to "/p" arrives after the one to "/pl"
+      const at = /(?:^|\s)@(\S*)$/.exec(text.slice(0, cursor));
+      if (at) return { items: [sugg({ value: "@src/index.ts", label: "index.ts" })], prefix: `@${at[1]}` };
+      if (text.startsWith("/effort ")) return { items: ["off", "low", "high"].map((v) => sugg({ value: `${v} `, label: v, description: `level ${v}` })), prefix: text.slice(8) };
+      if (!text.startsWith("/") || text.includes(" ")) return null;
+      const hits = catalog.filter((c) => c.value.startsWith(text.slice(1)));
+      return hits.length > 0 ? { items: hits.map(sugg), prefix: text } : null;
+    },
+    apply(text, cursor, item, prefix) {
+      if (prefix.startsWith("@")) {
+        const head = `${text.slice(0, cursor - prefix.length)}${item.value} `;
+        return { text: head + text.slice(cursor), cursor: head.length };
+      }
+      if (text.startsWith("/effort ")) return { text: `/effort ${item.value}`, cursor: 8 + item.value.length };
+      return { text: `/${item.value} `, cursor: item.value.length + 2 };
+    },
+  };
+  const hud = new FullHud(s, noTheme, () => {}, () => closed++, () => 30, bridge);
+  const type = (str: string): void => {
+    for (const ch of str) hud.handleInput(ch);
+  };
+  const flush = (): Promise<void> => sleep(8);
+  const screen = (w = 140): string => hud.render(w).map(plain).join("\n");
+  const rows = (): string[] => hud.render(140).map(plain).filter((l) => l.startsWith(" ▸ /") || /^ {3}\/\w/.test(l));
+  const clear = (): void => hud.handleInput("\x15");
+
+  type("/");
+  await flush();
+  check("`/` opens the palette with at most 8 rows, the first one selected, name + description", rows().length === 8 && rows()[0]!.startsWith(" ▸ /plan") && rows()[0]!.includes("about plan"), rows());
+  check("the hint row switches to the palette keys", screen().split("\n").at(-1)!.includes("↑/↓ select · Tab/Enter apply · Esc close the list"), screen().split("\n").at(-1));
+  hud.handleInput("\x1b[B");
+  check("Down moves the selection", rows()[1]!.startsWith(" ▸ /plugins"), rows());
+  hud.handleInput("\x1b[A");
+  hud.handleInput("\x1b[A");
+  check("Up wraps to the last item and the window follows it", rows().at(-1)!.startsWith(" ▸ /hotkeys") && !rows().some((r) => r.includes("/plan")), rows());
+  hud.handleInput("\x1b[B");
+  check("Down wraps back to the first item", rows()[0]!.startsWith(" ▸ /plan"), rows());
+  hud.handleInput("\t");
+  await flush();
+  check("Tab applies the selected item through omp's applyCompletion", screen().includes("❯ /plan ") && rows().length === 0, screen().split("\n").at(-2));
+  clear();
+
+  queries.length = 0;
+  type("/to");
+  await flush();
+  check("one query per keystroke", queries.join("|") === "/|/t|/to", queries);
+  check("the list is filtered, tools first", rows().length === 2 && rows()[0]!.startsWith(" ▸ /tools"), rows());
+  hud.handleInput("\x1b[B");
+  check("an item with an argument hint shows it", rows()[1]!.startsWith(" ▸ /todo") && rows()[1]!.includes("[edit]"), rows());
+  hud.handleInput("\x1b");
+  check("Esc closes only the list: the text stays, the HUD stays open", rows().length === 0 && screen().includes("❯ /to") && closed === 0);
+  hud.handleInput("\x1b");
+  check("a second Esc clears the prompt", !screen().includes("❯ /to") && screen().includes("type a message") && closed === 0);
+
+  type("/to");
+  await flush();
+  hud.handleInput("\r");
+  await flush();
+  check("Enter on a partial name applies the completion instead of running it", screen().includes("❯ /tools ") && ran.length === 0, [ran]);
+  clear();
+  type("/tools");
+  await flush();
+  hud.handleInput("\r");
+  await flush();
+  check("Enter on a complete name runs it (applying would change nothing)", ran.at(-1) === "/tools" && rows().length === 0, ran);
+
+  type("/effort ");
+  await flush();
+  check("arguments are completed from the same provider", screen().includes("level high") && screen().includes("level low"));
+  hud.handleInput("\x1b[B");
+  hud.handleInput("\t");
+  check("Tab applies the selected argument", screen().includes("❯ /effort low "), screen().split("\n").at(-2));
+  clear();
+
+  type("see @sr");
+  await flush();
+  check("an @ mention offers files", screen().includes("index.ts") && screen().split("\n").at(-1)!.includes("Tab/Enter apply"));
+  hud.handleInput("\t");
+  check("Tab completes the mention in place", screen().includes("❯ see @src/index.ts "), screen().split("\n").at(-2));
+  clear();
+
+  type("/p");
+  type("l");
+  await sleep(60);
+  check("an older, slower answer never overwrites a newer one", rows().length === 2 && rows().some((r) => r.includes("/plugins")) && !rows().some((r) => r.includes("/ping")), rows());
+  clear();
+
+  hud.handleInput("\x1b[200~/to\x1b[201~");
+  await flush();
+  check("a pasted /to opens the list too", rows().length === 2, rows());
+  hud.handleInput("\x1b\r");
+  await flush();
+  check("Alt+Enter does not apply: it submits the line", ran.at(-1) === "/to", ran);
+
+  const narrow = new FullHud(s, noTheme, () => {}, () => {}, () => 20, bridge);
+  narrow.handleInput("/");
+  await flush();
+  const lines = narrow.render(60);
+  check("60x20 with the palette: exactly 20 rows of 60 cells, the prompt row intact", lines.length === 20 && lines.every((l) => vw(l) === 60) && plain(lines[18]!).startsWith("❯ /") && lines.filter((l) => plain(l).startsWith(" ▸ /") || /^ {3}\/\w/.test(plain(l))).length === 8, lines.map(plain));
+  narrow.dispose?.();
+  hud.dispose?.();
+  check("no text ever went to the agent through the palette", sent.length === 0, sent);
 }
 
 console.log("[full screen: orbit layout]");
@@ -1171,7 +1533,7 @@ console.log("[chat: index.ts bridge]");
   type("/hud help");
   full.handleInput("\r");
   const chatText = screen().split("\n").map((l) => [...l].slice(70).join("").replace(/^│|│$/g, "").trim()).join(" ").replace(/\s+/g, " "); // right half, wrapped lines joined
-  check("/hud help runs inside the HUD: output in the panel, no notification behind the overlay", chatText.includes("Only /hud ... commands run inside the HUD.") && M.notes.length === notes, [M.notes.length, notes]);
+  check("/hud help runs inside the HUD: output in the panel, no notification behind the overlay", chatText.includes("/hud ... commands run inside the HUD.") && M.notes.length === notes, [M.notes.length, notes]);
   type("/hud full");
   full.handleInput("\r");
   check("/hud full inside the HUD says so and does not open a second one", screen().includes("already in full screen") && M.custom.opened === opened);
@@ -1228,6 +1590,117 @@ console.log("[chat: closing and reopening the full screen]");
   await second.done;
   second.full.dispose?.();
   check("reopening sent nothing to omp", idx.sent.length === before + 1, idx.sent.slice(before));
+}
+
+console.log("[slash: index.ts runs lines through omp's editor]");
+{
+  type FullLike = { render(w: number): readonly string[]; handleInput(d: string): void; dispose?(): void };
+  const sentBefore = idx.sent.length;
+  check("session_start registered omp's autocomplete provider once per process", M.providers.length === 1, M.providers.length);
+  await idx.emit("session_start", {}, M.ctx);
+  check("a second session_start does not register another (it cannot be undone)", M.providers.length === 1, M.providers.length);
+  const slashBase = makeSlashBase();
+  check("the registered factory returns the base unchanged", M.providers[0]!(slashBase.base) === slashBase.base);
+
+  const p = cmd.handler("full", M.ctx) as Promise<void>;
+  const full = M.custom.factory!(M.tui, M.theme, {}, (r: unknown) => M.custom.done!(r)) as FullLike;
+  const type = (str: string): void => {
+    for (const ch of str) full.handleInput(ch);
+  };
+  const screen = (): string => full.render(140).map(plain).join("\n");
+  const panelText = (): string => screen().split("\n").map((l) => [...l].slice(70).join("").replace(/^│|│$/g, "").trim()).join(" ").replace(/\s+/g, " "); // right half, wrapped lines joined
+  const palette = (): string[] => full.render(140).map(plain).filter((l) => l.startsWith(" ▸ /") || /^ {3}\/\w/.test(l));
+  const clear = (): void => full.handleInput("\x15");
+
+  type("/to");
+  await sleep(10);
+  check("the palette shows omp's own completion (names and descriptions) from the captured base", palette().length === 1 && palette()[0]!.includes("/tools") && palette()[0]!.includes("Tools: 12 active"), palette());
+  full.handleInput("\t");
+  check("Tab applies omp's completion result", screen().includes("❯ /tools "), screen().split("\n").at(-2));
+  clear();
+
+  M.editor.text = "my draft";
+  type("/ping x");
+  full.handleInput("\r");
+  await sleep(20);
+  check("a known /command: the HUD hides and the line goes through the editor's submit", M.focus.hidden && M.editor.submitted.at(-1) === "/ping x", [M.focus.hidden, M.editor.submitted]);
+  await sleep(330);
+  check("it kept the focus: the HUD stays hidden, the status line says any key returns, one key listener waits", M.focus.hidden && M.statuses.at(-1)?.key === "hud-resume" && M.statuses.at(-1)?.text === "HUD: press any key to return" && M.keyListeners() === 1, [M.focus.hidden, M.statuses.at(-1), M.keyListeners()]);
+  check("a terminal focus report is not a key", M.key("\x1b[I") === false && M.focus.hidden);
+  type("/ping y");
+  full.handleInput("\r");
+  await sleep(10);
+  check("a second command while one is running is refused with a notice, the line is kept", screen().includes("previous command is still running") && screen().includes("❯ /ping y") && M.editor.submitted.length === 1, M.editor.submitted);
+  clear();
+  check("the first key is swallowed (it never reaches the editor)", M.key("x") === true);
+  await sleep(120);
+  check("the HUD is back, the draft is restored, the listener and the status are gone", !M.focus.hidden && M.editor.text === "my draft" && M.keyListeners() === 0 && M.statuses.at(-1)?.key === "hud-resume" && M.statuses.at(-1)?.text === undefined, [M.focus.hidden, M.editor.text, M.keyListeners(), M.statuses.at(-1)]);
+  check("the panel reports what ran", screen().includes("ran in omp: /ping x"));
+  check("the model never got the line (no sendUserMessage)", idx.sent.length === sentBefore, idx.sent.slice(sentBefore));
+
+  M.editor.onSubmit = () => {
+    M.focus.dialog = { kind: "viewer" };
+  };
+  type("/tools");
+  full.handleInput("\r");
+  await sleep(330);
+  check("a command that opens a viewer: no pause, no key listener, the HUD stays hidden meanwhile", M.focus.hidden && M.keyListeners() === 0, [M.focus.hidden, M.keyListeners()]);
+  M.focus.dialog = undefined;
+  M.editor.onSubmit = undefined;
+  await sleep(120);
+  check("closing the viewer brings the HUD back by itself, draft restored", !M.focus.hidden && M.editor.text === "my draft", [M.focus.hidden, M.editor.text]);
+
+  const hides = M.focus.hideCalls;
+  type("/xyz");
+  full.handleInput("\r");
+  await sleep(20);
+  check("an unknown /command is refused here: never hidden, never submitted, never sent; the line is kept", M.focus.hideCalls === hides && M.editor.submitted.at(-1) === "/tools" && screen().includes("Unknown command: /xyz") && screen().includes("❯ /xyz") && idx.sent.length === sentBefore, [M.focus.hideCalls, hides, M.editor.submitted]);
+  clear();
+
+  type("!echo hi");
+  full.handleInput("\r");
+  await sleep(330);
+  check("a !shell line goes through the editor too and never to the model", M.editor.submitted.at(-1) === "!echo hi" && M.focus.hidden && idx.sent.length === sentBefore, [M.editor.submitted, M.focus.hidden]);
+  M.key("z");
+  await sleep(120);
+  check("... and the HUD returns on a key", !M.focus.hidden);
+
+  const savedChildren = M.tui.children;
+  M.tui.children = [];
+  M.focus.dialog = {};
+  type("/ping");
+  full.handleInput("\r");
+  await sleep(150);
+  check("no editor found: the HUD comes back and says so, the line is kept", !M.focus.hidden && screen().includes("editor was not found") && screen().includes("❯ /ping") && M.editor.submitted.at(-1) === "!echo hi", [M.focus.hidden, M.editor.submitted]);
+  M.focus.dialog = undefined;
+  M.tui.children = savedChildren;
+  clear();
+
+  M.editor.disableSubmit = true;
+  type("/ping");
+  full.handleInput("\r");
+  await sleep(150);
+  check("a submit-disabled editor: the HUD comes back and says so", !M.focus.hidden && panelText().includes("does not accept submits"), panelText());
+  M.editor.disableSubmit = false;
+  clear();
+
+  await cmd.handler("doctor", M.ctx);
+  check("/hud doctor reports the editor, the provider and the last command", M.notes.at(-1)?.includes("slash: editor yes (tree) · autocomplete provider yes · last command: ") === true && M.notes.at(-1)?.includes("submit-disabled") === true, M.notes.at(-1)?.split("\n").find((l) => l.startsWith("slash")));
+  full.handleInput("\x1b");
+  await p;
+  full.dispose?.();
+
+  const dp = cmd.handler("demo full", M.ctx) as Promise<void>;
+  const demo = M.custom.factory!(M.tui, M.theme, {}, (r: unknown) => M.custom.done!(r)) as FullLike;
+  const submitted = M.editor.submitted.length;
+  const hides2 = M.focus.hideCalls;
+  for (const ch of "/plan") demo.handleInput(ch);
+  demo.handleInput("\r");
+  await sleep(20);
+  check("demo: a /command never reaches omp's editor, the demo answers itself", M.editor.submitted.length === submitted && M.focus.hideCalls === hides2 && demo.render(140).map(plain).join("\n").includes("This is a demo"));
+  M.custom.done!(undefined);
+  await dp;
+  demo.dispose?.();
 }
 
 await idx.emit("session_shutdown", {}, M.ctx);
