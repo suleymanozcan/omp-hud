@@ -15,8 +15,9 @@
 - Araç çağrıları, alt ajan başlangıç/bitişleri, yeniden denemeler ve bağlam sıkıştırmasından oluşan **canlı akış**.
 - İlerlemesiyle birlikte **görevler** (todo listesi).
 - **Token göstergeleri**: giriş / çıkış / önbellek tokenları, bağlam penceresi doluluğu (%), saniyedeki token (tok/s) ve maliyet.
-- Editörün altında **kompakt widget** (3 satır); oturum açılınca kendiliğinden gelir.
-- `/hud` ile **tam ekran** kip (alternatif ekran); çıkınca normal ekran bozulmadan geri gelir.
+- Editörün üstünde **dock** (6 / 9 / 12 satır); oturum başında açıktır: yazarken ve cevap okurken HUD görünür kalır.
+- `/hud full` ile **tam ekran** kip (alternatif ekran); çıkınca normal ekran bozulmadan geri gelir.
+- **Kompakt panel** (`/hud compact on`): editörün altında eski 1-3 satırlık görünüm.
 - **`/hud demo`**: sahte olay akışı (yaklaşık 45 sn'lik döngü); tek token harcamadan her şeyi görürsünüz.
 - **İngilizce ve Türkçe** arayüz (`en` / `tr`, otomatik algılanır, çalışırken değiştirilebilir).
 
@@ -25,6 +26,8 @@
 ## Dock
 
 Dock, editörün hemen üstünde duran kısa bir panel (6, 9 ya da 12 satır; terminal yüksekliğinin en çok %40'ı). Böylece HUD görünürken prompt yazmaya ve cevapları okumaya devam edebilirsin. Tam ekran katmanın aksine odağı almaz. Küçük animasyonlu çekirdeği ve alt ajan yörüngesini (çalışan düğümler hareket eder, biten yeşil, hata veren kırmızı), canlı akışın son satırlarını, aktif görevi ve token satırını gösterir. 70 sütunun altında yörünge yerine kompakt durum bloğu ve akışın son satırları gelir. Dock satırlarını üstündeki konuşma alanından alır; kısa terminallerde küçük tut. Komutlar: `/hud help`.
+
+**Dock neden varsayılan?** Tam ekran HUD ekranın tamamını kaplar; açıkken ajana yazamaz, cevapları okuyamazsınız. 1-3 satırlık kompakt panel ise ekranın altında kolayca kaybolur. Dock çalıştığınız yerde (prompt'un üstünde) görünür kalır, son satırları gizleyen pencerelerde kırpılmaz ve yer gerektiğinde `/hud` ile gizlenir. `/hud size small` (6 satır) en az yer kaplayan ayardır; `OMP_HUD_SIZE=small` bunu varsayılan yapar.
 
 omp'siz önizleme: `bun scripts/preview.ts --dock --size medium --width 130 --rows 40 --at 3,14,24,36`.
 
@@ -81,13 +84,17 @@ extensions:
 
 | Komut | Etki |
 | --- | --- |
-| `/hud` | Tam ekran HUD'u açar. |
-| `/hud demo` | Sahte olay akışıyla tam ekran HUD (gerçek oturum durumuna dokunmaz). |
-| `/hud compact on\|off` | Editörün altındaki kompakt widget'ı açar/kapatır (argümansız: tersine çevirir). |
+| `/hud` | Dock'u açar/kapatır (varsayılan görünüm; oturum başında açık): editörün yanında 6 / 9 / 12 satırlık panel, odağı almaz, yazmaya devam edersiniz. |
+| `/hud full` | Tam ekran HUD (eski `/hud`; son satırı `/hud pad` boş bırakır). |
+| `/hud size small\|medium\|large` | Dock boyutu (varsayılan medium, ortam `OMP_HUD_SIZE`); argümansız boyutu ve bu terminal yüksekliğinde aldığı satırı gösterir. |
+| `/hud place above\|below` | Dock editörün üstünde (varsayılan) ya da altında (ortam `OMP_HUD_PLACE`); açıksa yeniden kurulur. |
+| `/hud demo` | Dock'ta sahte olay akışı (gerekirse demo için dock'u açar; yeniden ya da `/hud demo off` durdurur). Gerçek oturum durumuna dokunmaz. |
+| `/hud demo full` | Aynı sahte akış tam ekran HUD'da. |
+| `/hud compact on\|off` | Editörün altındaki eski 1-3 satırlık panel (argümansız: tersine çevirir). Açmak dock'u kapatır, tersi de geçerli: ikisi aynı veriyi iki kez gösterirdi. |
 | `/hud lang tr\|en\|auto` | Arayüz dilini bu çalışma için değiştirir (kalıcı değildir); argümansız mevcut dili gösterir. |
 | `/hud status on\|off` | omp'nin durum metninde tek satırlık özet (`hud ○ hazır`, `hud ⠹ düşünüyor · 2 çalışıyor 1 bitti · giriş 12k çıkış 3k · bağlam 42%`); varsayılan açık; argümansız durumu gösterir. |
-| `/hud pad 0-3` | Kompakt widget ve tam ekran HUD için alt tarafta boş bırakılan satır (varsayılan 1, ortam `OMP_HUD_PAD`); argümansız değeri gösterir. |
-| `/hud doctor` | Tanı: sürüm, dil, mod, widget ve durum satırı durumu, terminal boyutu, mağaza, zamanlayıcı. Ortam dökümü yok (yalnız `OMP_HUD_LANG` ve `COLORTERM`). |
+| `/hud pad 0-3` | Editörün altındaki görünümler ve tam ekran HUD için alt tarafta boş bırakılan satır (varsayılan 1, ortam `OMP_HUD_PAD`); argümansız değeri gösterir. Editörün üstündeki dock'a uygulanmaz. |
+| `/hud doctor` | Tanı: sürüm, dil, mod, dock / kompakt / durum satırı durumu, terminal boyutu, mağaza, zamanlayıcı. Ortam dökümü yok (yalnız `OMP_HUD_LANG` ve `COLORTERM`). |
 | `/hud help` | Komut özetini gösterir. |
 
 Her komut kısa bir bildirimle yanıt verir (örneğin `Kompakt HUD: açık (editörün altında 1-3 satır)` ya da `zaten açık`).
@@ -131,8 +138,8 @@ bun scripts/preview.ts --frames 2 --width 140 --height 40 --at 14,24 --compact -
 
 - **Yalnızca omp 18.8.9'da denendi** (macOS; Ghostty ve cmux). Diğer omp sürümleri ve diğer terminaller: bilinmiyor.
 - **Belgelenmemiş iç kanallara dayanır.** Alt ajan verisi `pi.events` üzerindeki `task:subagent:lifecycle` ve `task:subagent:progress` olaylarından, tam ekran ise overlay `fullscreen` seçeneğinden gelir. İkisi de belgeli sözleşme değildir; omp güncellenince bozulabilir. Yedek yollar vardır: alt ajan olayları değişirse alt ajan düğümleri boş kalabilir, çekirdek, akış, görevler ve token göstergeleri çalışmaya devam eder; `fullscreen` kalkarsa HUD normal bir overlay'e düşer.
-- **omp'nin ana görünümünü değiştirmez.** omp'de `setHeader` / `setFooter` etkisizdir; HUD yalnızca editörün altındaki widget ve tam ekran overlay olarak görünür.
-- **Tam ekran açıkken ajana yazılamaz.** Odak overlay'dedir; geri dönmek için `Esc`'e basın.
+- **omp'nin ana görünümünü değiştirmez.** omp'de `setHeader` / `setFooter` etkisizdir; HUD yalnızca widget'lar (editörün yanındaki dock, altındaki kompakt panel), durum metni satırı ve tam ekran overlay olarak görünür.
+- **Tam ekran HUD (`/hud full`) açıkken ajana yazılamaz.** Odak overlay'dedir; geri dönmek için `Esc`'e basın. Dock odağı almaz: görünürken yazabilirsiniz.
 - **Terminal:** braille ve blok karakterler yoğun kullanılır; braille'i iyi çizen bir yazı tipiyle truecolor terminal (`COLORTERM=truecolor`) önerilir. Terminal en az 50x14 olmalıdır. TUI olmayan kiplerde HUD kurulmaz.
 - **Yerleşik özelliklerle örtüşme:** omp'nin Agent Hub'ı (`Alt+A`) benzer alt ajan verisini gösterir. Editörün üstündeki yerleşik "Subagents" bloğu HUD ile çakışırsa `display.pinnedAgents: off` ayarlayın.
 
@@ -141,10 +148,10 @@ bun scripts/preview.ts --frames 2 --width 140 --height 40 --at 14,24 --compact -
 - Hiçbir şey görünmüyorsa: `omp`'yi yeniden başlatın (eklentiler yalnızca başlangıçta yüklenir) ve `/hud help` yazın. Komut bilinmiyorsa eklenti yüklenmemiştir.
 - omp günlüklerinde (`~/.omp/logs/`; adlandırılmış profil `~/.omp/profiles/<ad>/logs/` altına yazar) `Failed to load extension` arayın. Tipik nedenler: yanlış ya da taşınmış yol, sembolik bağlantı yerine yönlendirme dosyası (yukarıya bakın).
 - Renkler soluksa: terminalde `COLORTERM=truecolor` olmalıdır.
-- Yeniden boyutlandırmadan sonra tam ekran bozulursa: bir kez daha boyutlandırıp `/hud` komutunu yeniden verin.
-- Editörün altındaki widget görünmüyorsa: `/hud doctor` yazın. Widget durumunu (`bağlandı: evet` omp'nin widget'ı oluşturduğunu gösterir; `çizim` ve `son: genişlik G, N satır` ne çizdiğini gösterir), durum satırını, omp'nin gördüğü terminal boyutunu, mağazayı ve zamanlayıcıyı yazar. Model çağırmadan `/hud compact on` da denenebilir (bildirimle yanıtlar, açıksa `zaten açık` der).
-- Terminal penceresi alt satırları kırpıyorsa (bazı pencereler son bir iki satırı gizler): `/hud pad 2` (ya da ortamda `OMP_HUD_PAD=2`; 0-3, varsayılan 1) kompakt widget'ın altında o kadar boş satır bırakır ve tam ekran HUD'u o kadar satır kısaltır; böylece alt ipucu satırı görünür kalır.
-- Alt kısımda hâlâ bir şey yoksa: HUD omp'nin durum metnine de tek satırlık özet yazar (`hud ○ hazır`, anahtar `hud`; omp 18.8.9'da editör ve widget'ın altında tek satır olarak doğrulandı). Bu, widget'a bağlı değildir. `/hud status on` ile açın. Görünmüyorsa omp'nin `statusLine.showHookStatus` ayarının `false` olmadığına bakın.
+- Yeniden boyutlandırmadan sonra tam ekran bozulursa: bir kez daha boyutlandırıp `/hud full` komutunu yeniden verin.
+- HUD görünmüyorsa: `/hud doctor` yazın. `dock:` satırı açık/kapalı durumunu, boyutu ve alması gereken satır sayısını, son `setWidget` çağrısının sonucunu, `bağlandı: evet` (omp widget'ı oluşturdu) bilgisini ve son çizilen boyutu (`çizim N (son GxS)`) gösterir. `/hud` komutunu da deneyin (bildirimle yanıtlar: `HUD dock: açık (medium, editörün üstünde)` ya da `kapalı`) ve terminalin en az yaklaşık 20 satır olduğundan emin olun (daha kısa terminallerde dock 4 satıra iner).
+- Terminal penceresi alt satırları kırpıyorsa (bazı pencereler son bir iki satırı gizler): dock editörün üstünde durduğu için etkilenmez. Editörün altındaki görünümler etkilenir: `/hud place below`, `/hud compact on` ve tam ekran HUD. Bunlar için `/hud pad 2` (ya da `OMP_HUD_PAD=2`; 0-3, varsayılan 1) panelin altında o kadar boş satır bırakır ve tam ekran HUD'u o kadar satır kısaltır; böylece alt ipucu satırı görünür kalır. Dock editörün üstündeyken boşluk uygulanmaz.
+- Alt kısımda hâlâ bir şey yoksa: HUD omp'nin durum metnine de tek satırlık özet yazar (`hud ○ hazır`, anahtar `hud`; omp 18.8.9'da editörün altında tek satır olarak doğrulandı). Bu, widget'lara bağlı değildir. `/hud status on` ile açın. Görünmüyorsa omp'nin `statusLine.showHookStatus` ayarının `false` olmadığına bakın.
 
 ## Geliştirme
 
@@ -165,8 +172,10 @@ src/demo.ts              /hud demo için sahte olay akışı
 src/i18n.ts              en / tr metinleri
 src/status-text.ts       durum çubuğu için tek satırlık düz metin özeti
 src/pad.ts               alt boşluk (`/hud pad`, `OMP_HUD_PAD`)
+src/layout-settings.ts   dock boyutu ve yeri (`/hud size`, `/hud place`, `OMP_HUD_SIZE`, `OMP_HUD_PLACE`)
+src/dock-i18n.ts         yalnız dock'a ait en / tr metinleri
 src/render/              braille tuval, çekirdek, yörünge, akış, görev, token, yerleşim
-src/components/          FullHud (overlay), CompactHud (editörün altındaki widget)
+src/components/          DockHud (editörün yanındaki widget), FullHud (overlay), CompactHud (1-3 satır), PaddedComponent
 scripts/preview.ts       omp'siz önizleme (kareler / HTML / canlı)
 scripts/ansi-to-html.ts  önizleme için ANSI -> HTML dönüştürücü
 scripts/shim-pi-tui.ts   düz bun için pi-tui taklidi (yalnız önizleme ve duman testi)

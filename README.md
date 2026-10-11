@@ -15,8 +15,9 @@ Terminal HUD for [oh-my-pi](https://github.com/can1357/oh-my-pi) (`omp`): an ani
 - **Live feed** of tool calls, sub-agent starts and finishes, retries and context compaction.
 - **Tasks**: your todo list with progress.
 - **Token gauges**: input / output / cache tokens, context window usage in %, tokens per second and cost.
-- **Compact widget** below the editor (3 lines), always on once a session starts.
-- **Fullscreen mode** with `/hud`, on the alternate screen; the normal screen is restored on exit.
+- **Dock** above the editor (6 / 9 / 12 rows), on from the start of a session: the HUD stays visible while you type and read answers.
+- **Fullscreen mode** with `/hud full`, on the alternate screen; the normal screen is restored on exit.
+- **Compact panel** (`/hud compact on`): the older 1-3 row view below the editor.
 - **`/hud demo`**: a fake event stream (about 45 s loop) so you can see everything without spending a token.
 - **English and Turkish** UI (`en` / `tr`, auto-detected, switchable at runtime).
 
@@ -25,6 +26,8 @@ Terminal HUD for [oh-my-pi](https://github.com/can1357/oh-my-pi) (`omp`): an ani
 ## Dock
 
 The dock is a short panel (6, 9 or 12 rows; never more than 40% of the terminal height) that sits right above the editor, so you can keep typing prompts and reading answers while the HUD stays visible. Unlike the fullscreen overlay it does not take focus. It shows a small animated core with the sub-agent orbit (running nodes move, finished ones turn green, failed ones red), the latest live-feed lines, the active task and a token line. Below 70 columns the orbit is replaced by a compact status block plus the tail of the feed. The dock takes its rows from the transcript above it, so keep it small on short terminals. Commands: see `/hud help`.
+
+**Why the dock is the default.** The fullscreen HUD covers the whole screen, so you cannot type to the agent or read its answers while it is open, and the 1-3 row compact panel is easy to lose at the bottom of the screen. The dock stays visible where you work (above the prompt), is not clipped by windows that hide the last rows, and can be hidden with `/hud` when you need the space. `/hud size small` (6 rows) is the least intrusive setting; `OMP_HUD_SIZE=small` makes it the default.
 
 Preview without omp: `bun scripts/preview.ts --dock --size medium --width 130 --rows 40 --at 3,14,24,36`.
 
@@ -81,13 +84,17 @@ extensions:
 
 | Command | Effect |
 | --- | --- |
-| `/hud` | Open the fullscreen HUD. |
-| `/hud demo` | Fullscreen HUD driven by a fake event stream (does not touch the real session state). |
-| `/hud compact on\|off` | Show or hide the compact widget below the editor (no argument: toggle). |
+| `/hud` | Show or hide the dock (default view; on at session start): a 6 / 9 / 12 row panel next to the editor, no focus taken, you keep typing. |
+| `/hud full` | The fullscreen HUD (the old `/hud`; the last row is kept free by `/hud pad`). |
+| `/hud size small\|medium\|large` | Dock size (default medium, env `OMP_HUD_SIZE`); no argument shows it and the rows it takes at this terminal height. |
+| `/hud place above\|below` | Dock above (default) or below the editor (env `OMP_HUD_PLACE`); the dock is re-installed when open. |
+| `/hud demo` | A fake event stream in the dock (opens it for the demo if needed; run it again or `/hud demo off` to stop). The real session state is not touched. |
+| `/hud demo full` | The same fake stream in the fullscreen HUD. |
+| `/hud compact on\|off` | The older 1-3 row panel below the editor (no argument: toggle). Turning it on closes the dock and the other way round: both would show the same data twice. |
 | `/hud lang tr\|en\|auto` | Switch the UI language for this run (not persisted); no argument shows the current one. |
 | `/hud status on\|off` | One-line summary (`hud ○ ready`, `hud ⠹ thinking · 2 running 1 done · in 12k out 3k · ctx 42%`) in omp's status text, on by default; no argument shows the state. |
-| `/hud pad 0-3` | Blank rows kept free at the bottom of the compact widget and the fullscreen HUD (default 1, env `OMP_HUD_PAD`); no argument shows the value. |
-| `/hud doctor` | Diagnostics: version, language, mode, widget and status line state, terminal size, store, timer. No environment dump (only `OMP_HUD_LANG` and `COLORTERM`). |
+| `/hud pad 0-3` | Blank rows kept free at the bottom of views below the editor and the fullscreen HUD (default 1, env `OMP_HUD_PAD`); no argument shows the value. It does not apply to the dock above the editor. |
+| `/hud doctor` | Diagnostics: version, language, mode, dock / compact / status line state, terminal size, store, timer. No environment dump (only `OMP_HUD_LANG` and `COLORTERM`). |
 | `/hud help` | Print the command summary. |
 
 Every command answers with a short notification (for example `Compact HUD: on (1-3 lines below the editor)`, or `already on`).
@@ -131,8 +138,8 @@ bun scripts/preview.ts --frames 2 --width 140 --height 40 --at 14,24 --compact -
 
 - **Tested on omp 18.8.9 only** (macOS; Ghostty and cmux). Other omp versions and other terminals: unknown.
 - **It relies on undocumented internals.** Sub-agent data comes from the `task:subagent:lifecycle` and `task:subagent:progress` events on `pi.events`, and fullscreen uses the overlay `fullscreen` option. Neither is a documented contract, so an omp update can break them. There are fallbacks: if the sub-agent events change, sub-agent nodes may stay empty while the core, feed, tasks and token gauges keep working; if `fullscreen` disappears, the HUD falls back to a normal overlay.
-- **It does not replace omp's main view.** `setHeader` / `setFooter` have no effect in omp, so the HUD shows up only as the widget below the editor and as the fullscreen overlay.
-- **You cannot type to the agent while fullscreen is open.** Focus is on the overlay; press `Esc` to get back.
+- **It does not replace omp's main view.** `setHeader` / `setFooter` have no effect in omp, so the HUD shows up only as widgets (the dock next to the editor, the compact panel below it), the status text line and the fullscreen overlay.
+- **You cannot type to the agent while the fullscreen HUD (`/hud full`) is open.** Focus is on the overlay; press `Esc` to get back. The dock does not take focus: you can type while it is shown.
 - **Terminal:** braille and block characters are used heavily; a truecolor terminal (`COLORTERM=truecolor`) with a font that renders braille well is recommended. The terminal must be at least 50x14. The HUD is not installed in non-TUI modes.
 - **Overlap with built-in features:** omp's Agent Hub (`Alt+A`) shows similar sub-agent data. If the built-in pinned "Subagents" block above the editor overlaps with the HUD, set `display.pinnedAgents: off`.
 
@@ -141,10 +148,10 @@ bun scripts/preview.ts --frames 2 --width 140 --height 40 --at 14,24 --compact -
 - Nothing shows up: restart `omp` (extensions load only at startup) and run `/hud help`. If the command is unknown, the extension was not loaded.
 - Look in the omp logs (`~/.omp/logs/`; a named profile logs to `~/.omp/profiles/<name>/logs/`) for `Failed to load extension`. Typical causes: a wrong or moved path, or a redirect file instead of a symlink (see above).
 - Faded colors: set `COLORTERM=truecolor` in your terminal.
-- Garbled fullscreen after a resize: resize once more and run `/hud` again.
-- The widget below the editor is not visible: run `/hud doctor`. It prints the widget state (`mounted: yes` means omp created it; `renders` and `last: width W, N lines` show what it drew), the status line, the terminal size as omp sees it, the store and the timer. Without a model call you can also check `/hud compact on` (it answers with a notification, `already on` if it was on).
-- Bottom rows are cut off by the terminal window (some windows hide the last row or two): `/hud pad 2` (or `OMP_HUD_PAD=2` in the environment; 0-3, default 1) keeps that many blank rows under the compact widget and makes the fullscreen HUD that many rows shorter, so its last hint line stays visible.
-- Still nothing at the bottom: the HUD also writes a one-line summary into omp's status text (`hud ○ ready`, key `hud`; verified on omp 18.8.9 as one line under the editor and widget). It does not depend on the widget. Turn it on with `/hud status on`. If it does not appear, check that omp's `statusLine.showHookStatus` is not `false`.
+- Garbled fullscreen after a resize: resize once more and run `/hud full` again.
+- The HUD is not visible: run `/hud doctor`. The `dock:` line shows whether it is on, its size and the rows it should take, the result of the last `setWidget` call, `mounted: yes` (omp created the widget) and what it last drew (`renders N (last WxH)`). Also check `/hud` (it answers with a notification: `HUD dock: on (medium, above the editor)` or `off`), and that the terminal is at least about 20 rows tall (on shorter terminals the dock shrinks to 4 rows).
+- Bottom rows are cut off by the terminal window (some windows hide the last row or two): the dock sits above the editor, so it is not affected. Views below the editor are: `/hud place below`, `/hud compact on` and the fullscreen HUD. For those, `/hud pad 2` (or `OMP_HUD_PAD=2`; 0-3, default 1) keeps that many blank rows under the panel and makes the fullscreen HUD that many rows shorter, so its last hint line stays visible. Padding is not applied to the dock when it is above the editor.
+- Still nothing at the bottom: the HUD also writes a one-line summary into omp's status text (`hud ○ ready`, key `hud`; verified on omp 18.8.9 as one line under the editor). It does not depend on the widgets. Turn it on with `/hud status on`. If it does not appear, check that omp's `statusLine.showHookStatus` is not `false`.
 
 ## Development
 
@@ -165,8 +172,10 @@ src/demo.ts              fake event stream for /hud demo
 src/i18n.ts              en / tr strings
 src/status-text.ts       one-line plain-text summary for the status bar
 src/pad.ts               bottom padding (`/hud pad`, `OMP_HUD_PAD`)
+src/layout-settings.ts   dock size and place (`/hud size`, `/hud place`, `OMP_HUD_SIZE`, `OMP_HUD_PLACE`)
+src/dock-i18n.ts         dock-only en / tr strings
 src/render/              braille canvas, core, orbit, feed, tasks, tokens, layout
-src/components/          FullHud (overlay), CompactHud (widget below the editor)
+src/components/          DockHud (widget next to the editor), FullHud (overlay), CompactHud (1-3 rows), PaddedComponent
 scripts/preview.ts       preview without omp (frames / HTML / live)
 scripts/ansi-to-html.ts  ANSI to HTML converter for the preview
 scripts/shim-pi-tui.ts   stand-in for pi-tui under plain bun (preview and smoke only)
