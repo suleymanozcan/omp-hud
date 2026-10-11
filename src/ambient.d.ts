@@ -87,6 +87,8 @@ declare module "@oh-my-pi/pi-coding-agent" {
       content: ComponentFactory | readonly string[] | undefined,
       options?: { placement?: "aboveEditor" | "belowEditor" },
     ): void;
+    /** Footer status text keyed per extension; `undefined` removes the entry. omp strips ANSI and truncates it. */
+    setStatus(key: string, text: string | undefined): void;
     notify(message: string, type?: "info" | "warning" | "error"): void;
   }
 

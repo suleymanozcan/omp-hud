@@ -80,17 +80,36 @@ const tr = {
   "feed.compacted": "bağlam sıkıştırıldı",
   "feed.compactFailed": "sıkıştırma başarısız",
 
-  "cmd.description": "omp-hud: /hud, /hud demo, /hud compact [on|off], /hud lang [tr|en|auto], /hud help",
+  "status.ctx": "bağlam",
+
+  "cmd.description":
+    "omp-hud: /hud, /hud demo, /hud compact [on|off], /hud status [on|off], /hud pad [0-3], /hud lang [tr|en|auto], /hud doctor, /hud help",
   "cmd.help":
     "omp-hud komutları:\n" +
     "  /hud              tam ekran HUD (Esc ile çıkış)\n" +
     "  /hud demo         sahte olay akışıyla tam ekran gösterim\n" +
-    "  /hud compact      küçük kalıcı paneli aç/kapat (on|off verilebilir)\n" +
+    "  /hud compact      editörün altındaki küçük kalıcı paneli aç/kapat (on|off verilebilir)\n" +
+    "  /hud status       alt çubuktaki tek satırlık HUD özeti: on | off (argümansız: durumu göster)\n" +
+    "  /hud pad [0-3]    ekranın altında boş bırakılan satır (küçük panel ve tam ekran); şimdi {pad}\n" +
     "  /hud lang         arayüz dili: tr | en | auto (yalnız bu oturum)\n" +
+    "  /hud doctor       tanı: panel, durum satırı, ekran boyutu, depo, zamanlayıcı\n" +
     "  /hud help         bu yardım\n" +
-    "Ortam değişkeni: OMP_HUD_LANG=tr|en (başlangıç dili; yoksa LC_ALL/LC_MESSAGES/LANG, yedek en)",
-  "cmd.panelOn": "HUD paneli açık",
-  "cmd.panelOff": "HUD paneli kapalı",
+    "Ortam değişkeni: OMP_HUD_LANG=tr|en (başlangıç dili; yoksa LC_ALL/LC_MESSAGES/LANG, yedek en), OMP_HUD_PAD=0-3 (başlangıç boşluğu, varsayılan 1)\n" +
+    "Ekranın altında bir şey görünmüyor mu? /hud pad 2 ve /hud status on deneyin, sonra /hud doctor.",
+  "cmd.compactOn": "Kompakt HUD: açık (editörün altında 1-3 satır)",
+  "cmd.compactAlreadyOn": "Kompakt HUD: zaten açık (yeniden uygulandı)",
+  "cmd.compactOff": "Kompakt HUD: kapalı",
+  "cmd.compactAlreadyOff": "Kompakt HUD: zaten kapalı",
+  "cmd.compactFailed": "Kompakt HUD başlatılamadı: {err}",
+  "cmd.statusOn": "HUD durum satırı: açık (alt çubuk durumu, anahtar hud)",
+  "cmd.statusAlreadyOn": "HUD durum satırı: zaten açık",
+  "cmd.statusOff": "HUD durum satırı: kapalı",
+  "cmd.statusAlreadyOff": "HUD durum satırı: zaten kapalı",
+  "cmd.statusUsage": "Kullanım: /hud status [on|off]",
+  "cmd.statusFailed": "HUD durum satırı hatası: {err}",
+  "cmd.padNow": "Alt boşluk: {n} boş satır (küçük panel ve tam ekran HUD)",
+  "cmd.padUsage": "Kullanım: /hud pad [0-3]",
+  "cmd.demoClosed": "Demo kapandı",
   "cmd.langNow": "Dil: {lang} ({mode})",
   "cmd.langAuto": "otomatik",
   "cmd.langManual": "elle",
@@ -98,6 +117,29 @@ const tr = {
   "cmd.unknown": "Bilinmeyen alt komut: {sub}",
   "cmd.error": "HUD hatası: {err}",
   "cmd.openFailed": "HUD açılamadı: {err}",
+
+  "doc.title": "omp-hud tanı",
+  "doc.version": "sürüm: {v}",
+  "doc.lang": "dil: {lang} ({mode}) · OMP_HUD_LANG={env} · COLORTERM={ct}",
+  "doc.mode": "mod: {mode} · arayüz: {ui}",
+  "doc.widget": "küçük panel: {state} · setWidget: {call} · bağlandı: {mounted} · çizim: {n}{last}",
+  "doc.status": "durum satırı: {state} · setStatus: {call} · yazım: {n} · metin: {text}",
+  "doc.screen": "ekran: satır {rows} · sütun {cols} · boşluk {pad} · tam ekran satırı {full} · küçük panel satırı {lines}",
+  "doc.store": "depo: v{ver} · çekirdek: {core} ({since}) · düğümler: {nodes} · son olay: {event}",
+  "doc.timer": "zamanlayıcı: {timer}",
+  "doc.on": "açık",
+  "doc.off": "kapalı",
+  "doc.yes": "evet",
+  "doc.no": "hayır",
+  "doc.unknown": "bilinmiyor",
+  "doc.none": "yok",
+  "doc.never": "çağrılmadı",
+  "doc.ok": "tamam {ago}",
+  "doc.failed": "hata: {err}",
+  "doc.ago": "{s} sn önce",
+  "doc.lastRender": " (son: genişlik {w}, {n} satır)",
+  "doc.timerRunning": "çalışıyor, {ms} ms ({hz} Hz)",
+  "doc.timerStopped": "durdu",
 
   "demo.phase.discover": "Keşif",
   "demo.phase.build": "Uygulama",
@@ -227,17 +269,34 @@ const en: Record<MsgKey, string> = {
   "feed.compacted": "context compacted",
   "feed.compactFailed": "compaction failed",
 
-  "cmd.description": "omp-hud: /hud, /hud demo, /hud compact [on|off], /hud lang [tr|en|auto], /hud help",
+  "cmd.description":
+    "omp-hud: /hud, /hud demo, /hud compact [on|off], /hud status [on|off], /hud pad [0-3], /hud lang [tr|en|auto], /hud doctor, /hud help",
   "cmd.help":
     "omp-hud commands:\n" +
     "  /hud              full-screen HUD (Esc to close)\n" +
     "  /hud demo         full-screen showcase with simulated events\n" +
-    "  /hud compact      toggle the small persistent panel (on|off accepted)\n" +
+    "  /hud compact      toggle the small persistent panel below the editor (on|off accepted)\n" +
+    "  /hud status       one-line HUD summary in the footer status: on | off (no argument: show state)\n" +
+    "  /hud pad [0-3]    blank rows kept free at the bottom (compact panel and full screen); now {pad}\n" +
     "  /hud lang         interface language: tr | en | auto (this session only)\n" +
+    "  /hud doctor       diagnostics: widget, status line, screen size, store, timer\n" +
     "  /hud help         this help\n" +
-    "Environment: OMP_HUD_LANG=tr|en (initial language; else LC_ALL/LC_MESSAGES/LANG, fallback en)",
-  "cmd.panelOn": "HUD panel on",
-  "cmd.panelOff": "HUD panel off",
+    "Environment: OMP_HUD_LANG=tr|en (initial language; else LC_ALL/LC_MESSAGES/LANG, fallback en), OMP_HUD_PAD=0-3 (initial pad, default 1)\n" +
+    "Nothing visible at the bottom of the screen? Try /hud pad 2 and /hud status on, then /hud doctor.",
+  "cmd.compactOn": "Compact HUD: on (1-3 lines below the editor)",
+  "cmd.compactAlreadyOn": "Compact HUD: already on (re-applied)",
+  "cmd.compactOff": "Compact HUD: off",
+  "cmd.compactAlreadyOff": "Compact HUD: already off",
+  "cmd.compactFailed": "Compact HUD failed to start: {err}",
+  "cmd.statusOn": "HUD status line: on (footer status, key hud)",
+  "cmd.statusAlreadyOn": "HUD status line: already on",
+  "cmd.statusOff": "HUD status line: off",
+  "cmd.statusAlreadyOff": "HUD status line: already off",
+  "cmd.statusUsage": "Usage: /hud status [on|off]",
+  "cmd.statusFailed": "HUD status line failed: {err}",
+  "cmd.padNow": "Bottom padding: {n} blank row(s) (compact panel and full-screen HUD)",
+  "cmd.padUsage": "Usage: /hud pad [0-3]",
+  "cmd.demoClosed": "Demo closed",
   "cmd.langNow": "Language: {lang} ({mode})",
   "cmd.langAuto": "auto",
   "cmd.langManual": "manual",
@@ -245,6 +304,31 @@ const en: Record<MsgKey, string> = {
   "cmd.unknown": "Unknown subcommand: {sub}",
   "cmd.error": "HUD error: {err}",
   "cmd.openFailed": "HUD failed to open: {err}",
+
+  "doc.title": "omp-hud doctor",
+  "doc.version": "version: {v}",
+  "doc.lang": "language: {lang} ({mode}) · OMP_HUD_LANG={env} · COLORTERM={ct}",
+  "doc.mode": "mode: {mode} · ui: {ui}",
+  "doc.widget": "compact widget: {state} · setWidget: {call} · mounted: {mounted} · renders: {n}{last}",
+  "doc.status": "status line: {state} · setStatus: {call} · writes: {n} · text: {text}",
+  "doc.screen": "screen: rows {rows} · columns {cols} · pad {pad} · full-screen rows {full} · compact lines {lines}",
+  "doc.store": "store: v{ver} · core: {core} ({since}) · nodes: {nodes} · last event: {event}",
+  "doc.timer": "timer: {timer}",
+  "doc.on": "on",
+  "doc.off": "off",
+  "doc.yes": "yes",
+  "doc.no": "no",
+  "doc.unknown": "unknown",
+  "doc.none": "none",
+  "doc.never": "not called",
+  "doc.ok": "ok {ago}",
+  "doc.failed": "failed: {err}",
+  "doc.ago": "{s}s ago",
+  "doc.lastRender": " (last: width {w}, {n} lines)",
+  "doc.timerRunning": "running, {ms} ms ({hz} Hz)",
+  "doc.timerStopped": "stopped",
+
+  "status.ctx": "ctx",
 
   "demo.phase.discover": "Discovery",
   "demo.phase.build": "Implementation",
