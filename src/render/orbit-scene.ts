@@ -10,6 +10,11 @@ import { CORE_RATIO, type NodePos, drawRing } from "./ring";
 const MIN_COLS = 24;
 const MIN_ROWS = 10;
 const LABEL_MAX = 10;
+const SMALL_MIN_COLS = 16;
+const SMALL_MIN_ROWS = 5;
+const SMALL_MIN_RADIUS = 6;
+const EMPTY_CORE_SCALE = 2.1; // core radius = 0.4 * 2.1 = 84% of the orbit radius
+const CORE_EASE_MS = 400;
 
 const STATUS_KEY: Record<CoreStatus, MsgKey> = {
   idle: "status.idle",
@@ -29,6 +34,17 @@ let canvas: BrailleCanvas | null = null;
 let occ = new Uint8Array(0);
 let blank = "";
 let blankWidth = -1;
+let coreScale = 1;
+let coreScaleAt = -1;
+
+/** Moves the core scale toward `target` over ~400 ms of state time (the first call snaps). Only used by the label-less small scene. */
+function easeCoreScale(target: number, now: number): number {
+  const dt = coreScaleAt < 0 ? Number.POSITIVE_INFINITY : Math.max(0, now - coreScaleAt);
+  coreScaleAt = now;
+  const step = (dt / CORE_EASE_MS) * (EMPTY_CORE_SCALE - 1);
+  coreScale = coreScale < target ? Math.min(target, coreScale + step) : Math.max(target, coreScale - step);
+  return coreScale;
+}
 
 /** Single-cell width guarantee: anything outside Latin-1/Latin Extended-A becomes `?`; control characters are dropped. */
 function cleanLabel(name: string): string {
@@ -140,32 +156,53 @@ function placeLabel(c: BrailleCanvas, p: NodePos, cx: number, pal: Palette, sele
 /**
  * Exactly `height` rows, each with visible width == width (space padded). Below 24 columns / 10 rows it is a one-line summary.
  * A new array is returned on every call (the cell arrays are reused by the internal canvas).
+ *
+ * `small` relaxes the thresholds (16 columns / 5 rows, smaller radius) for dock-sized areas. `labels` (default: `!small`)
+ * controls the node-name labels and the status row; without it the scene is only core + orbits + node dots and uses every row.
  */
-export function renderOrbitScene(state: HudState, width: number, height: number, theme: HudTheme, opts?: { selectedId?: string }): string[] {
+export function renderOrbitScene(
+  state: HudState,
+  width: number,
+  height: number,
+  theme: HudTheme,
+  opts?: { selectedId?: string; small?: boolean; labels?: boolean },
+): string[] {
   width = Math.floor(width);
   height = Math.floor(height);
   if (!(width > 0) || !(height > 0)) return [];
-  if (width < MIN_COLS || height < MIN_ROWS) return tinyScene(state, width, height, theme);
+  const small = opts?.small === true;
+  const labels = opts?.labels ?? !small;
+  if (width < (small ? SMALL_MIN_COLS : MIN_COLS) || height < (small ? SMALL_MIN_ROWS : MIN_ROWS)) return tinyScene(state, width, height, theme);
 
   if (!canvas) canvas = new BrailleCanvas(width, height);
   else canvas.resize(width, height);
   const c = canvas;
   c.clear();
-  if (occ.length < width * height) occ = new Uint8Array(width * height);
-  else occ.fill(0, 0, width * height);
+  if (labels) {
+    if (occ.length < width * height) occ = new Uint8Array(width * height);
+    else occ.fill(0, 0, width * height);
+  }
 
   const pal = paletteFor(theme);
   const pw = width * 2;
-  const sceneRows = height - 1; // the last row is the status label
+  const sceneRows = labels ? height - 1 : height; // with labels the last row is the status label
   const ph = sceneRows * 4;
   const cx = (pw - 1) / 2;
   const cy = (ph - 1) / 2;
-  const labelRoom = Math.min(22, pw * 0.15);
-  const radius = Math.min(ph / 2 - 3, pw / 2 - 2 - labelRoom);
-  if (radius < 10) return tinyScene(state, width, height, theme);
+  const labelRoom = labels ? Math.min(small ? 10 : 22, pw * 0.15) : 0;
+  const radius = Math.min(ph / 2 - (small ? 2 : 3), pw / 2 - 2 - labelRoom);
+  if (radius < (small ? SMALL_MIN_RADIUS : 10)) return tinyScene(state, width, height, theme);
 
   const pos = drawRing(c, state, cx, cy, radius, theme, opts?.selectedId);
-  drawCore(c, state, cx, cy, radius * CORE_RATIO, theme);
+  // Dock-sized scene without labels: with no nodes the core grows to fill the area (eased, so a first node does not make it jump).
+  const coreR = radius * CORE_RATIO * (small && !labels ? easeCoreScale(pos.length === 0 ? EMPTY_CORE_SCALE : 1, state.now) : 1);
+  drawCore(c, state, cx, cy, coreR, theme);
+
+  const hidden = state.nodes.length - pos.length;
+  if (!labels) {
+    if (hidden > 0) c.text(0, 0, `+${hidden}`, shade(pal, "muted", 0.9));
+    return c.toRows(theme).slice();
+  }
 
   // Occupied cells: status row, core, node dots.
   occ.fill(1, sceneRows * width, height * width);
@@ -191,7 +228,6 @@ export function renderOrbitScene(state: HudState, width: number, height: number,
   for (const p of pos) if (p.node.status === "running") placeLabel(c, p, cx, pal, sel === p.node.id);
   for (const p of pos) if (p.node.status !== "running") placeLabel(c, p, cx, pal, sel === p.node.id);
 
-  const hidden = state.nodes.length - pos.length;
   if (hidden > 0) {
     const s = `+${hidden}`;
     c.text(Math.max(0, width - s.length), 0, s, shade(pal, "muted", 0.9));
