@@ -125,9 +125,9 @@ declare module "@oh-my-pi/pi-coding-agent" {
     agent_end: Record<string, unknown>;
     turn_start: Record<string, unknown>;
     turn_end: Record<string, unknown>;
-    message_start: { message?: { role?: string; content?: unknown } };
-    message_update: { message?: { role?: string; content?: unknown } };
-    message_end: { message?: { role?: string; content?: unknown; usage?: Usage } };
+    message_start: { message?: { role?: string; content?: unknown; timestamp?: number } };
+    message_update: { message?: { role?: string; content?: unknown; timestamp?: number } };
+    message_end: { message?: { role?: string; content?: unknown; timestamp?: number; usage?: Usage } };
     tool_execution_start: { toolCallId?: string; toolName?: string; args?: unknown; intent?: string };
     tool_execution_end: { toolCallId?: string; toolName?: string; result?: unknown; isError?: boolean };
     tool_result: { toolName?: string; details?: unknown; isError?: boolean };

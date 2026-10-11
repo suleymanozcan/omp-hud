@@ -658,6 +658,174 @@ console.log("[chat: collector]");
   check("session_switch resets and reloads the conversation", s.state.chat?.length === 2, s.state.chat?.length);
 }
 
+console.log("[chat: every message once]");
+{
+  const mk = async (branch: unknown[] = []) => {
+    const s = createStore();
+    const h = makePi();
+    attachCollector(h.pi, s);
+    const c = makeCtx({ branch });
+    await h.emit("session_start", {}, c.ctx);
+    const play = async (events: Array<[string, unknown]>) => {
+      for (const [name, payload] of events) await h.emit(name, payload, c.ctx);
+    };
+    const rows = () => (s.state.chat ?? []).map((m) => `${m.role}:${m.text}${m.streaming ? ":streaming" : ""}${m.pending ? `:${m.pending}` : ""}`);
+    return { s, h, c, play, rows };
+  };
+  const text = (t: string) => [{ type: "text", text: t }];
+  const A = (t: string | undefined, ts: number, ...extra: unknown[]) => ({ role: "assistant", content: [...(t === undefined ? [] : text(t)), ...extra], timestamp: ts });
+  const U = (t: string, ts: number) => ({ role: "user", content: text(t), timestamp: ts });
+  const call = { type: "toolCall", name: "bash" };
+  // What real omp 18.8.9 emits for one text turn (captured in a pty run): the custom reminder, the user message,
+  // the assistant message start, two updates, the end, and one more update AFTER the end.
+  const textTurn = (q: string, a: string, ts: number): Array<[string, unknown]> => [
+    ["agent_start", {}],
+    ["message_start", { message: { role: "custom", content: "<system-reminder>x</system-reminder>" } }],
+    ["message_end", { message: { role: "custom", content: "<system-reminder>x</system-reminder>" } }],
+    ["message_start", { message: U(q, ts) }],
+    ["message_end", { message: U(q, ts) }],
+    ["turn_start", {}],
+    ["message_start", { message: A(undefined, ts + 1) }],
+    ["message_update", { message: A(a.slice(0, 2), ts + 1) }],
+    ["message_update", { message: A(a, ts + 1) }],
+    ["message_end", { message: A(a, ts + 1) }],
+    ["message_update", { message: A(a, ts + 1) }],
+    ["turn_end", {}],
+    ["agent_end", { messages: [] }],
+  ];
+  {
+    const t = await mk();
+    await t.play(textTurn("ping", "pong", 10));
+    check("a text turn (omp sends a message_update after message_end): question and answer once, in order", t.rows().join("|") === "user:ping|assistant:pong", t.rows());
+    await t.play(textTurn("ping", "pong", 20));
+    check("the same words asked again are a new turn, not a duplicate", t.rows().join("|") === "user:ping|assistant:pong|user:ping|assistant:pong", t.rows());
+  }
+  {
+    const t = await mk();
+    await t.play([
+      ["agent_start", {}],
+      ["message_start", { message: U("run it", 30) }],
+      ["message_end", { message: U("run it", 30) }],
+      ["turn_start", {}],
+      ["message_start", { message: A(undefined, 31) }],
+      ["message_update", { message: A("Checking first.", 31, call) }],
+      ["message_end", { message: A("Checking first.", 31, call) }],
+      ["message_update", { message: A("Checking first.", 31, call) }],
+      ["tool_execution_start", { toolCallId: "t1", toolName: "bash" }],
+      ["tool_execution_end", { toolCallId: "t1", toolName: "bash" }],
+      ["message_start", { message: { role: "toolResult", content: text("out") } }],
+      ["message_end", { message: { role: "toolResult", content: text("out") } }],
+      ["turn_end", {}],
+      ["turn_start", {}],
+      ["message_start", { message: A(undefined, 32) }],
+      ["message_update", { message: A("All done.", 32) }],
+      ["message_end", { message: A("All done.", 32) }],
+      ["message_update", { message: A("All done.", 32) }],
+    ]);
+    await sleep(140);
+    await t.play([
+      ["message_update", { message: A("All done.", 32) }],
+      ["turn_end", {}],
+      ["agent_end", { messages: [] }],
+    ]);
+    check("a turn with a tool call: each assistant message once, in order, nothing left streaming", t.rows().join("|") === "user:run it|assistant:Checking first.|assistant:All done.", t.rows());
+    const t2 = await mk();
+    await t2.play([
+      ["message_start", { message: A(undefined, 80) }],
+      ["message_update", { message: A("x", 80) }],
+      ["message_end", { message: A("x", 80) }],
+    ]);
+    t2.s.setCoreStatus("thinking");
+    await t2.play([["message_update", { message: A("x", 80) }]]);
+    check("a message_update after message_end does not put the core back to streaming", t2.s.state.core.status === "thinking", t2.s.state.core.status);
+  }
+  {
+    const t = await mk();
+    await t.play([
+      ["agent_start", {}],
+      ["message_start", { message: U("tools only", 40) }],
+      ["message_start", { message: A(undefined, 41) }],
+      ["message_update", { message: A(undefined, 41, call) }],
+      ["message_end", { message: A(undefined, 41, call) }],
+      ["message_update", { message: A(undefined, 41, call) }],
+      ["agent_end", { messages: [] }],
+    ]);
+    check("a message with tool calls only leaves nothing, even with a late update", t.rows().join("|") === "user:tools only", t.rows());
+  }
+  {
+    const t = await mk([
+      { type: "message", message: U("old question", 100) },
+      { type: "message", message: { ...A("old answer", 101) } },
+    ]);
+    check("history loads the earlier turn", t.rows().join("|") === "user:old question|assistant:old answer", t.rows());
+    await t.play([
+      ["message_start", { message: U("old question", 100) }],
+      ["message_start", { message: A(undefined, 101) }],
+      ["message_update", { message: A("old answer", 101) }],
+      ["message_end", { message: A("old answer", 101) }],
+      ["message_update", { message: A("old answer", 101) }],
+      ["agent_end", { messages: [] }],
+    ]);
+    check("history followed by the live events of the same messages: no copies", t.rows().join("|") === "user:old question|assistant:old answer", t.rows());
+    await t.play(textTurn("next", "fresh", 200));
+    check("a new turn after that is appended once", t.rows().join("|") === "user:old question|assistant:old answer|user:next|assistant:fresh", t.rows());
+  }
+  {
+    const t = await mk();
+    await t.play([
+      ["message_update", { message: A("joined mid-stream", 50) }],
+      ["message_end", { message: A("joined mid-stream", 50) }],
+      ["message_end", { message: A("joined mid-stream", 50) }],
+      ["message_update", { message: A("joined mid-stream", 50) }],
+    ]);
+    check("an extension that joins mid-stream shows the message once (updates without a start are ignored, a repeated end too)", t.rows().join("|") === "assistant:joined mid-stream", t.rows());
+  }
+  {
+    const t = await mk();
+    await t.play([
+      ["message_start", { message: A(undefined, 60) }],
+      ["message_update", { message: A("cut off", 60) }],
+      ["message_start", { message: A(undefined, 61) }],
+      ["message_update", { message: A("second", 61) }],
+    ]);
+    check("a message that never ended is closed when the next one starts", t.rows().join("|") === "assistant:cut off|assistant:second:streaming", t.rows());
+    await t.play([["agent_end", { messages: [] }]]);
+    check("agent_end closes the last streaming message", t.rows().join("|") === "assistant:cut off|assistant:second", t.rows());
+  }
+  {
+    // A follow-up typed in the HUD while the agent is busy stays behind the running reply, also when that reply's late update arrives.
+    const t = await mk();
+    t.s.addChat({ role: "user", text: "one", pending: "sending" });
+    await t.play([
+      ["agent_start", {}],
+      ["message_start", { message: U("one", 70) }],
+      ["message_start", { message: A(undefined, 71) }],
+      ["message_update", { message: A("answer one", 71) }],
+    ]);
+    t.s.addChat({ role: "user", text: "two", pending: "queued" });
+    t.s.addChat({ role: "user", text: "three", pending: "steer" });
+    await t.play([
+      ["message_end", { message: A("answer one", 71) }],
+      ["message_update", { message: A("answer one", 71) }],
+    ]);
+    check("queued messages stay behind the running reply (a late update does not open an entry behind them)", t.rows().join("|") === "user:one|assistant:answer one|user:two:queued|user:three:steer", t.rows());
+    await t.play([
+      ["message_start", { message: U("two", 72) }],
+      ["message_start", { message: A(undefined, 73) }],
+      ["message_update", { message: A("answer two", 73) }],
+      ["message_end", { message: A("answer two", 73) }],
+      ["message_update", { message: A("answer two", 73) }],
+      ["message_start", { message: U("three", 74) }],
+      ["message_start", { message: A(undefined, 75) }],
+      ["message_update", { message: A("answer three", 75) }],
+      ["message_end", { message: A("answer three", 75) }],
+      ["message_update", { message: A("answer three", 75) }],
+      ["agent_end", { messages: [] }],
+    ]);
+    check("queued and steered messages appear in the order omp runs them, each once", t.rows().join("|") === "user:one|assistant:answer one|user:two|assistant:answer two|user:three|assistant:answer three", t.rows());
+  }
+}
+
 console.log("[chat: input line]");
 const { InputLine } = await import("../src/components/input-line.ts");
 const { renderChat } = await import("../src/render/chat.ts");
@@ -748,7 +916,8 @@ console.log("[chat: panel]");
   check("chat panel: labels, no markdown markers", text.includes("you ▸") && text.includes("omp ▸") && !text.includes("**") && !text.includes("# Title") && text.includes("Title"));
   check("chat panel: list items keep their markers, wrapped lines hang", text.includes("• first item") && text.includes("1. numbered"));
   const codeRow = renderChat(s.state, 50, 30, tagTheme).find((x) => x.includes("veryLongCodeLine"));
-  check("chat panel: code is dim, indented and clipped with an ellipsis", codeRow !== undefined && codeRow.includes("<dim>  const") && plain(codeRow).includes("…") && !plain(codeRow).includes("argumentNumberThree"), codeRow);
+  const codeRows = plain(renderChat(s.state, 50, 30, noTheme).join("\n"));
+  check("chat panel: code is dim, indented and wraps with a ↪ instead of being clipped", codeRow !== undefined && codeRow.includes("<dim>  const") && !codeRows.includes("…") && codeRows.includes("↪") && codeRows.replace(/[\s↪]/g, "").includes("argumentNumberThree);"), codeRow);
   const view = newChatView();
   for (let i = 0; i < 12; i++) s.addChat({ role: "assistant", text: `line ${i}\nline ${i}b` });
   const follow = renderChat(s.state, 50, 10, noTheme, view);
@@ -770,6 +939,63 @@ console.log("[chat: panel]");
     return renderChat(streaming.state, 30, 3, noTheme)[0]!;
   });
   check("chat panel: a streaming message shows a blinking block cursor", frames.some((f) => f.includes("▌")) && frames[0] !== frames[1], frames);
+
+  // --- wide lines wrap (never clipped), at every width
+  const wideUrl = `https://example.com/${"a".repeat(120)}`;
+  const wideTable = "| Repo | GitHub status |\n|---|---|\n| `omp-hud` | Published 0.1.0 earlier at github.com/x/omp-hud, last commit `7718ec2`; 20 commits ahead locally (`eded87f`, 0.3.0: bigger dock and typing in `/hud full`), not pushed |\n| property `api` | Never pushed. |";
+  const wideCode = "```sh\ncurl -fsSL https://example.com/some/very/long/path/that/keeps/going/and/going/forever/script.sh | bash -s -- --flag\n\tindented with a tab\n```";
+  const wideTr = "Çok uzun bir cümle: ğüşiöç İıŞ ÇÖÜ, hiçbir sözcük kesilmemeli; 日本語のテキストは幅が二倍です 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 sonu.";
+  const wideStore = createStore();
+  wideStore.addChat({ role: "user", text: `${wideTr}\n${wideUrl}\n/home/dev/${"deep/".repeat(30)}file.txt` });
+  wideStore.addChat({ role: "assistant", text: `${wideTable}\n\n${wideCode}\n\n- ${wideTr}\n- ${wideUrl}\n> ${wideTr}\n# ${wideTr}\n\x1b[31mred\x1b]0;title\x07 escape ${wideUrl}` });
+  wideStore.addChat({ role: "assistant", text: "| a | b |\n|---|---|\n| 1 | 2 |" });
+  wideStore.addChat({ role: "assistant", text: "| no header row | second |\n| with a very long cell that has to wrap somewhere around here | x |", streaming: true });
+  const bad: Array<[number, number, number]> = [];
+  for (let w = 30; w <= 220; w++) {
+    const rows = renderChat(wideStore.state, w, 200, noTheme);
+    const wrong = rows.filter((r) => vw(r) > w).length;
+    if (rows.length !== 200 || wrong > 0) bad.push([w, rows.length, wrong]);
+  }
+  check("chat panel wrap: 30-220 columns, wide lines (table, URL, path, code, emoji, CJK, Turkish): 0 rows wider than the panel", bad.length === 0, bad.slice(0, 5));
+  for (const w of [30, 47, 80, 133]) {
+    const flat = renderChat(wideStore.state, w, 200, noTheme).map(plain).join("\n");
+    const squeezed = flat.replace(/[\s↪]/g, "");
+    check(`chat panel wrap ${w}: nothing is clipped (no ellipsis; URL, path, code, table cells and text survive whole)`,
+      !flat.includes("…") && squeezed.includes(wideUrl) && squeezed.includes("/home/dev/") && squeezed.includes("file.txt")
+        && squeezed.includes("script.sh|bash-s----flag") && squeezed.includes("indentedwithatab") && squeezed.includes("20commitsaheadlocally") && squeezed.includes("typingin`/hudfull`),notpushed")
+        && squeezed.includes("😀".repeat(20)) && squeezed.includes("ğüşiöçİıŞÇÖÜ,hiçbirsözcükkesilmemeli") && squeezed.includes("日本語のテキストは幅が二倍です")
+        && squeezed.includes("redescape"), flat);
+  }
+  const record = renderChat(wideStore.state, 50, 200, noTheme).map(plain).join("\n");
+  check("chat panel wrap: a table wider than the panel becomes records (first cell, then `header: value` lines)", record.includes("▪ `omp-hud`") && record.includes("  GitHub status: Published") && record.includes("▪ property `api`") && !record.includes("| Repo |"), record);
+  const wideRows = renderChat(wideStore.state, 220, 200, noTheme).map(plain).join("\n");
+  check("chat panel wrap: a table that fits stays as written", wideRows.includes("| a | b |\n") && wideRows.includes("|---|---|") && wideRows.includes("| 1 | 2 |"), wideRows);
+  const csiRows = renderChat(wideStore.state, 60, 200, noTheme).map((r) => r).join("\n");
+  check("chat panel wrap: escape sequences in a message never reach the screen", !csiRows.includes("\x1b") && !csiRows.includes("\x07"));
+
+  // --- scrolling stays on the same message when the width changes
+  const scrollStore = createStore();
+  for (let i = 0; i < 24; i++) scrollStore.addChat({ role: "assistant", text: Array.from({ length: 30 }, () => `w${i}x`).join(" ") });
+  const sv = newChatView();
+  renderChat(scrollStore.state, 100, 12, noTheme, sv);
+  const idAt = (rows: string[], pos: number): number => {
+    for (let i = pos; i >= 0; i--) {
+      const m = /w(\d+)x/.exec(rows[i]!);
+      if (m) return Number(m[1]);
+    }
+    return -1;
+  };
+  sv.follow = false;
+  sv.offset = 60;
+  const wideView = renderChat(scrollStore.state, 100, 12, noTheme, sv).map(plain);
+  const wasId = idAt(wideView, 11);
+  const narrowView = renderChat(scrollStore.state, 50, 12, noTheme, sv).map(plain);
+  check("chat panel: a scrolled view keeps its message when the width shrinks", !sv.follow && idAt(narrowView, 11) === wasId && sv.offset > 60, [wasId, idAt(narrowView, 11), sv.offset]);
+  const backView = renderChat(scrollStore.state, 100, 12, noTheme, sv).map(plain);
+  check("chat panel: ... and when it grows back", idAt(backView, 11) === wasId, [wasId, idAt(backView, 11)]);
+  sv.follow = true;
+  const bottomRows = renderChat(scrollStore.state, 40, 12, noTheme, sv).map(plain);
+  check("chat panel: a following view stays at the newest line after a width change", sv.offset === 0 && idAt(bottomRows, 11) === 23, idAt(bottomRows, 11));
 }
 
 console.log("[chat: full screen component]");
@@ -952,6 +1178,39 @@ console.log("[chat: index.ts bridge]");
   M.custom.done!(undefined);
   await dp;
   demo.dispose?.();
+}
+
+console.log("[chat: closing and reopening the full screen]");
+{
+  const before = idx.sent.length;
+  const open = (): { full: { render(w: number): readonly string[]; handleInput(d: string): void; dispose?(): void }; done: Promise<void> } => {
+    const done = cmd.handler("full", M.ctx) as Promise<void>;
+    const full = M.custom.factory!(M.tui, M.theme, {}, (r: unknown) => M.custom.done!(r)) as { render(w: number): readonly string[]; handleInput(d: string): void; dispose?(): void };
+    return { full, done };
+  };
+  const shown = (full: { render(w: number): readonly string[] }): string => full.render(140).map(plain).join("\n");
+  const count = (hay: string, needle: string): number => hay.split(needle).length - 1;
+  const first = open();
+  M.idle.value = true;
+  for (const ch of "reopen probe") first.full.handleInput(ch);
+  first.full.handleInput("\r");
+  await idx.emit("agent_start", {}, M.ctx);
+  await idx.emit("message_start", { message: { role: "user", content: "reopen probe", timestamp: 9000 } }, M.ctx);
+  await idx.emit("message_start", { message: { role: "assistant", content: [], timestamp: 9001 } }, M.ctx);
+  await idx.emit("message_update", { message: { role: "assistant", content: [{ type: "text", text: "reopen answer" }] } }, M.ctx);
+  await idx.emit("message_end", { message: { role: "assistant", content: [{ type: "text", text: "reopen answer" }], timestamp: 9001 } }, M.ctx);
+  await idx.emit("message_update", { message: { role: "assistant", content: [{ type: "text", text: "reopen answer" }] } }, M.ctx);
+  await idx.emit("agent_end", { messages: [] }, M.ctx);
+  check("full screen: the question and the answer are shown once each", count(shown(first.full), "reopen probe") === 1 && count(shown(first.full), "reopen answer") === 1, shown(first.full));
+  first.full.handleInput("\x1b");
+  await first.done;
+  first.full.dispose?.();
+  const second = open();
+  check("reopening the full screen shows every message once (the conversation is not copied or lost)", count(shown(second.full), "reopen probe") === 1 && count(shown(second.full), "reopen answer") === 1, shown(second.full));
+  second.full.handleInput("\x1b");
+  await second.done;
+  second.full.dispose?.();
+  check("reopening sent nothing to omp", idx.sent.length === before + 1, idx.sent.slice(before));
 }
 
 await idx.emit("session_shutdown", {}, M.ctx);
