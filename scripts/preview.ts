@@ -2,7 +2,7 @@
 // Virtual time: Date.now is patched and the demo advances in 100 ms steps (no real waiting).
 import { installPiTuiShim } from "./shim-pi-tui.ts";
 import { framesToHtml, type HtmlFrame } from "./ansi-to-html.ts";
-import type { HudTheme } from "../src/types.ts";
+import type { HudStore, HudTask, HudTheme } from "../src/types.ts";
 import type { createStore } from "../src/store.ts";
 import type { DemoDriver } from "../src/demo.ts";
 import type { FullHud } from "../src/components/full-hud.ts";
@@ -22,7 +22,7 @@ const HELP = `HUD preview (no omp needed)
 Usage:
   bun scripts/preview.ts --frames N [--width W] [--height H] [--at 0,5,12,20,30] [--html out.html] [--compact]
   bun scripts/preview.ts --live [--compact]
-  bun scripts/preview.ts --dock [--size small|medium|large] [--width W] [--rows R] [--at 3,14,24] [--html out.html]
+  bun scripts/preview.ts --dock [--size small|medium|large] [--width W] [--rows R] [--at 3,14,24] [--idle empty|tasks|used] [--html out.html]
 
 Options:
   --frames N       print N frames (evenly spread over 2..42 s unless --at is given)
@@ -32,14 +32,16 @@ Options:
   --columns K      grid columns in the HTML output (default 1: stacked)
   --compact        also render the compact widget below every frame
   --dock           render the dock (panel above the editor) instead of the fullscreen HUD
-  --size S         dock size: small (6 rows) | medium (9, default) | large (12); capped by --rows
+  --size S         dock size: small (8 rows) | medium (12) | large (16, default); capped at 45% of --rows
   --rows R         terminal rows the dock height is derived from (default 40)
+  --idle KIND      dock only: no demo; a resting store instead. empty = fresh session, tasks = 52 tasks of which 17 blocked
+                   (like a real "all that is left is waiting" session), used = a finished turn with tokens and events
   --live           watch live in a real terminal on the alternate screen (~15 fps; Esc / q / Ctrl-C quits)
   --help           this help
 
 Language: set OMP_HUD_LANG=en or OMP_HUD_LANG=tr.
 Example (visual check): bun scripts/preview.ts --frames 4 --width 140 --height 40 --html /tmp/hud.html
-Example (dock): bun scripts/preview.ts --dock --size medium --width 130 --rows 40 --at 3,14,24,36 --html /tmp/dock.html
+Example (dock): bun scripts/preview.ts --dock --size large --width 200 --rows 45 --at 3,14,24,36 --html /tmp/dock.html
 `;
 
 interface Args {
@@ -55,10 +57,11 @@ interface Args {
   dock: boolean;
   size: "small" | "medium" | "large";
   rows: number;
+  idle?: "empty" | "tasks" | "used";
 }
 
 function parseArgs(argv: string[]): Args | string {
-  const a: Args = { width: 140, height: 40, columns: 1, compact: false, live: false, help: false, dock: false, size: "medium", rows: 40 };
+  const a: Args = { width: 140, height: 40, columns: 1, compact: false, live: false, help: false, dock: false, size: "large", rows: 40 };
   const num = (flag: string, v: string | undefined): number | string => {
     const n = Number(v);
     return v !== undefined && Number.isFinite(n) && n > 0 ? Math.floor(n) : `${flag} needs a positive number`;
@@ -83,6 +86,11 @@ function parseArgs(argv: string[]): Args | string {
       case "--size":
         if (v !== "small" && v !== "medium" && v !== "large") return "--size needs small, medium or large";
         a.size = v;
+        i++;
+        break;
+      case "--idle":
+        if (v !== "empty" && v !== "tasks" && v !== "used") return "--idle needs empty, tasks or used";
+        a.idle = v;
         i++;
         break;
       case "--rows": {
@@ -187,6 +195,43 @@ async function load(needCompact: boolean, needDock = false): Promise<Loaded> {
   };
 }
 
+// ---------------------------------------------------------------- idle stores (preview --dock --idle)
+
+type IdleKind = NonNullable<Args["idle"]>;
+
+/** A resting store without any demo: empty session, a task list that is mostly blocked, or a finished turn. */
+function seedIdle(store: HudStore, kind: IdleKind, now: number): void {
+  if (kind === "tasks") {
+    const tasks: HudTask[] = [];
+    for (let i = 1; i <= 52; i++) {
+      const status: HudTask["status"] = i <= 35 ? "completed" : "blocked";
+      tasks.push({ phase: i <= 35 ? "Build" : "Hand-off", content: i <= 35 ? `Build step ${i}` : `Owner decision ${i - 35} (waiting for feedback)`, status });
+    }
+    store.setTasks(tasks);
+  }
+  if (kind === "used") {
+    store.setCoreStatus("done");
+    store.incrementTurn();
+    store.addUsage({ input: 48_200, output: 9_100, cacheRead: 120_000, cacheWrite: 6_000, cost: 0.84 });
+    store.setCtxPct(38);
+    store.setTasks([
+      { phase: "Plan", content: "Read the render layer", status: "completed" },
+      { phase: "Plan", content: "Write the dock layout", status: "completed" },
+      { phase: "Plan", content: "Check wide terminals", status: "pending" },
+      { phase: "Plan", content: "Update the README", status: "pending" },
+    ]);
+    const events: { kind: "tool" | "message" | "todo"; text: string }[] = [
+      { kind: "tool", text: "read src/render/dock.ts" },
+      { kind: "tool", text: 'grep "renderOrbitScene"' },
+      { kind: "tool", text: "edit src/render/dock.ts" },
+      { kind: "tool", text: "bash bun scripts/smoke-collector.ts" },
+      { kind: "todo", text: "tasks: 2/4 done" },
+      { kind: "message", text: "turn finished" },
+    ];
+    events.forEach((e, i) => store.pushFeed({ agent: "main", kind: e.kind, text: e.text, t: now - (events.length - i) * 4000 }));
+  }
+}
+
 // ---------------------------------------------------------------- static frames
 
 async function runFrames(args: Args): Promise<void> {
@@ -219,7 +264,8 @@ async function runFrames(args: Args): Promise<void> {
     const hud = args.dock ? undefined : new L.FullHud(store, theme, () => {}, () => {}, () => args.height);
     const compact = L.CompactHud ? new L.CompactHud(store, theme) : undefined;
     const dock = L.DockHud ? new L.DockHud(store, theme, { getSize: () => args.size, getRows: () => args.rows }) : undefined;
-    driver.start();
+    if (args.idle) seedIdle(store, args.idle, vnow);
+    else driver.start();
 
     const STEP = 100;
     let elapsed = 0;
