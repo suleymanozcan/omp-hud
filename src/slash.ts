@@ -33,12 +33,16 @@ export function wantsPalette(text: string, cursor: number): boolean {
   return /(?:^|\s)@\S*$/.test(text.slice(0, cursor));
 }
 
-/** True for data that is a key the user pressed (not a focus report, a mouse report or a terminal answer). */
+/**
+ * True for data that is a key the user pressed: not a focus report, a mouse report, a terminal answer, or a kitty key repeat / release event
+ * (omp can enable the kitty event-type flag, so the release of the Enter that submitted the command may arrive after the pause started).
+ */
 export function isUserKey(data: string): boolean {
   if (data === "") return false;
   if (data.startsWith("\x1b[I") || data.startsWith("\x1b[O")) return false; // focus in / out
   if (data.startsWith("\x1b[<") || data.startsWith("\x1b[M")) return false; // mouse
   if (data.startsWith("\x1b]") || data.startsWith("\x1bP") || data.startsWith("\x1b[?")) return false; // OSC / DCS / mode answers
+  if (/^\x1b\[[\d:]*;\d+:[23](?:;[\d:]*)?[~A-Za-z]/.test(data)) return false; // kitty: event type 2 = repeat, 3 = release
   return true;
 }
 

@@ -1193,6 +1193,7 @@ console.log("[slash: classifying, completion, editor route]");
   check("commandName", slash.commandName("/ping x y") === "ping" && slash.commandName("/skill:demo a") === "skill:demo" && slash.commandName("/") === "");
   check("wantsPalette: a leading / or an @ mention at the cursor, never for ! or $ lines", slash.wantsPalette("/to", 3) && slash.wantsPalette("see @sr", 7) && !slash.wantsPalette("see @sr more", 12) && !slash.wantsPalette("hello", 5) && !slash.wantsPalette("!ls @x", 6) && !slash.wantsPalette("$ x", 3));
   check("isUserKey ignores focus reports, mouse reports and terminal answers", slash.isUserKey("x") && slash.isUserKey("\r") && slash.isUserKey("\x1b[A") && !slash.isUserKey("\x1b[I") && !slash.isUserKey("\x1b[<0;1;1M") && !slash.isUserKey("\x1b[?1;2c") && !slash.isUserKey(""));
+  check("isUserKey ignores kitty key release and repeat events (the Enter that submitted the command is released later) but not presses", !slash.isUserKey("\x1b[13;1:3u") && !slash.isUserKey("\x1b[13;1:2u") && !slash.isUserKey("\x1b[1;1:3A") && slash.isUserKey("\x1b[13;1:1u") && slash.isUserKey("\x1b[13;1u") && slash.isUserKey("\x1b[120u") && slash.isUserKey("\x1b[13;5u"));
 
   const raw = { prefix: "/to", items: [{ value: "tools", label: "/tools", description: "Tools: 12", argumentHint: "<x>", extra: 1 }, { value: "todo" }, { label: "no value" }, 7] };
   const norm = slash.normalizeSuggestions(raw);
