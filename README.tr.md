@@ -45,13 +45,13 @@ omp'siz önizleme: `bun scripts/preview.ts --dock --size large --width 200 --row
 
 `/hud full` HUD'u alternatif ekranda açar ve odağı alır. Canlı panellerin yanında kendi **sohbet paneli** (sizin mesajlarınız ve ajanın cevapları, canlı akışla; düşünme ve araç çağrıları gösterilmez, onlar akıştadır) ve altta bir **girdi kutusu** vardır.
 
-- **Yerleşim.** 110 sütundan itibaren: solda ajan yörüngesi (34 sütun), sağda sohbet (yüksekliğin yaklaşık üçte ikisi), altında ince akış ve tek satırlık görev özeti. 70 sütundan itibaren: üstte küçük yörünge, altında sohbet ve kısa akış. Daha darda: sohbet, kısa akış ve girdi kutusu. Token şeridi ve girdi kutusu (çizgi, girdi satırı, tuş ipucu) hep en alttadır. Düğüm ayrıntısı yörüngenin (küçük ekranlarda sohbetin) yerine geçer.
+- **Yerleşim.** 110 sütundan itibaren ajan ağı ekranın **sol yarısını** panel yüksekliğinin tamamında kaplar: büyük bir çekirdek, bölmeyi dolduran dört eliptik halka ve üzerinde alt ajan düğümleri; her düğümün bir etiketi vardır (durum simgesi ve ad; yer varsa altında çalışan araç ve süre). Çalışan düğümler hareket eder, biten yeşil, hata veren kırmızıdır; `Tab` ile seçilen düğüm iki yanında ok ile parlak görünür. Sağ yarıda üstte sohbet (yüksekliğin yaklaşık %55'i), altında canlı akış ve görevler yer alır (yaklaşık 180 sütundan itibaren yan yana, daha darda alt alta). Alt ajan yokken sahne, dock'taki gibi parlak dinlenen çekirdeği ve birkaç soluk yer tutucu kıvılcımı gösterir. 80-109 sütunda yörünge üstte durur (yüksekliğin yaklaşık %45'i); altında sohbet, kısa akış ve görev özeti gelir. Daha dar ya da kısa terminallerde aynı sıra 8 satırlık yörüngeyle sürer (sohbet hep 6 satır korur; yaklaşık 19 satırın altında yörünge çekilir). Token şeridi ve girdi kutusu (çizgi, girdi satırı, tuş ipucu) hep en alttadır. Düğüm ayrıntısı (`Tab`, sonra boş `Enter`) bölme yeterince yüksekse yörüngenin altında açılır, değilse yörüngenin yerine geçer; sohbet hiç örtülmez.
 - **Gönderme.** `Enter` metni omp'ye kullanıcı mesajı olarak gönderir. Ajan meşgulken mesaj kuyrukta bekler (`· sırada` etiketi) ve mevcut turdan sonra çalışır; `Alt+Enter` ise çalışan turu yönlendirir (`· yönlendirildi`). Gönderdiğiniz mesaj hemen görünür ve omp'nin kendi kullanıcı mesajıyla eşleştirilir; yani iki kez görünmez. Sohbet ayrıca editörden yazılan mesajları, oturum başında ya da oturum değişince de oturum geçmişinin son 40 mesajını gösterir.
 - **Komutlar.** HUD içinde yalnız `/hud ...` satırları çalışır (örneğin `/hud help`, `/hud lang tr`); çıktıları sohbet panelinde `hud ▸` etiketiyle görünür. Diğer her `/` satırı bir ipucuyla reddedilir (omp, eklentinin gönderdiği metinde komut açmaz) ve metin girdi kutusunda kalır.
 - **Kaydırma.** Panel en yeni satırı izler. `PgUp` / `Ctrl+↑` izlemeyi bırakır (başlıkta `↓ yeni` görünür); yeni metin okuduğunuz yeri kaydırmaz. `End` / `Ctrl+End` yeniden izler.
 - **Metin işleme.** Mesajlardan kontrol karakterleri ve ANSI dizileri temizlenir; çok uzun mesajlar kısaltılır (mesaj başına 12 KB, en çok 40 mesaj). Markdown sade metin olarak gösterilir: başlık ve kalın işaretleri düşer, listeler işaretini korur, kod blokları sönük, girintili ve kaydırılmak yerine kırpılır.
 
-Model olmadan denemek için: `/hud demo full` (orada yazdıklarınız omp'ye gitmez).
+Model olmadan denemek için: `/hud demo full` (orada yazdıklarınız omp'ye gitmez). omp'siz önizleme: `bun scripts/preview.ts --at 14,22 --width 200 --height 50 --html out.html` (başka boyutlar için örneğin `--width 100 --height 30`).
 
 ## Kurulum
 
@@ -199,7 +199,7 @@ src/status-text.ts       durum çubuğu için tek satırlık düz metin özeti
 src/pad.ts               alt boşluk (`/hud pad`, `OMP_HUD_PAD`)
 src/layout-settings.ts   dock boyutu ve yeri (`/hud size`, `/hud place`, `OMP_HUD_SIZE`, `OMP_HUD_PLACE`)
 src/dock-i18n.ts         yalnız dock'a ait en / tr metinleri
-src/render/              braille tuval, çekirdek, yörünge, akış, görev, token, yerleşim
+src/render/              braille tuval, çekirdek, yörünge halkaları, dock sahnesi, tam ekran sahnesi (düğüm etiketleri), akış, görev, token, yerleşim
 src/components/          DockHud (editörün yanındaki widget), FullHud (overlay), CompactHud (1-3 satır), PaddedComponent
 scripts/preview.ts       omp'siz önizleme (kareler / HTML / canlı)
 scripts/ansi-to-html.ts  önizleme için ANSI -> HTML dönüştürücü

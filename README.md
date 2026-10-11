@@ -45,13 +45,13 @@ Preview without omp: `bun scripts/preview.ts --dock --size large --width 200 --r
 
 `/hud full` opens the HUD on the alternate screen and takes focus. Besides the live panels it has its own **conversation panel** (your messages and the agent's answers, streamed live; thinking and tool calls are not shown, they are in the feed) and a **prompt** at the bottom.
 
-- **Layout.** From 110 columns: the agent orbit on the left (34 columns), the conversation on the right (about two thirds of the height) with a thin feed and a one-line task summary below it. From 70 columns: a small orbit on top, then the conversation and a short feed. Narrower: conversation, a short feed and the prompt. The token strip and the prompt (rule, input row, key hint) are always at the bottom. Node details replace the orbit (or the conversation on small screens).
+- **Layout.** From 110 columns the agent network takes the **left half** of the screen over the whole panel height: a big core, four elliptic rings that fill the pane, and the sub-agent nodes on them, each with a label (status icon and name; under it the running tool and the duration when there is room). Running nodes move, finished ones are green, failed ones red, and the node picked with `Tab` is bright with an arrow on each side. The right half holds the conversation on top (about 55% of the height) and the live feed and tasks below it (side by side from about 180 columns, stacked below that). With no sub-agents the scene shows the bright resting core and a few dim placeholder sparkles, like the dock. From 80 to 109 columns the orbit sits on top (about 45% of the height) and the conversation, a short feed and a task summary come under it. Narrower or shorter terminals keep that order with an 8-row orbit (the conversation always keeps 6 rows; below about 19 rows the orbit gives way). The token strip and the prompt (rule, input row, key hint) are always at the bottom. Node details (`Tab`, then an empty `Enter`) open under the orbit when the pane is tall enough, otherwise they take the orbit's place; the conversation is never covered.
 - **Sending.** `Enter` sends the text to omp as a user message. While the agent is busy the message waits in the queue (a `· queued` tag marks it) and runs after the current turn; `Alt+Enter` steers the running turn instead (`· steering`). A message you send appears at once and is matched with omp's own user message, so it is never shown twice. The conversation also shows messages typed in the editor and, at session start or after a session switch, the last 40 messages of the session history.
 - **Commands.** Only `/hud ...` lines run inside the HUD (for example `/hud help`, `/hud lang tr`); their output appears in the conversation panel with a `hud ▸` label. Any other `/` line is refused with a hint (omp does not expand commands for text sent by extensions), and the text stays in the prompt.
 - **Scrolling.** The panel follows the newest line. `PgUp` / `Ctrl+↑` stop following (the title shows `↓ new`); new text then does not move what you read. `End` / `Ctrl+End` follow again.
 - **Text handling.** Control characters and ANSI sequences are stripped from messages; very long messages are clipped (12 KB each, 40 messages kept). Markdown is shown as plain text: headings and bold markers are dropped, lists keep their markers, code blocks are dim, indented and clipped instead of wrapped.
 
-Try it without a model: `/hud demo full` (typing there never reaches omp).
+Try it without a model: `/hud demo full` (typing there never reaches omp). Preview without omp: `bun scripts/preview.ts --at 14,22 --width 200 --height 50 --html out.html` (try other sizes, for example `--width 100 --height 30`).
 
 ## Install
 
@@ -199,7 +199,7 @@ src/status-text.ts       one-line plain-text summary for the status bar
 src/pad.ts               bottom padding (`/hud pad`, `OMP_HUD_PAD`)
 src/layout-settings.ts   dock size and place (`/hud size`, `/hud place`, `OMP_HUD_SIZE`, `OMP_HUD_PLACE`)
 src/dock-i18n.ts         dock-only en / tr strings
-src/render/              braille canvas, core, orbit, feed, tasks, tokens, layout
+src/render/              braille canvas, core, orbit rings, dock scene, full-screen scene (node labels), feed, tasks, tokens, layout
 src/components/          DockHud (widget next to the editor), FullHud (overlay), CompactHud (1-3 rows), PaddedComponent
 scripts/preview.ts       preview without omp (frames / HTML / live)
 scripts/ansi-to-html.ts  ANSI to HTML converter for the preview
