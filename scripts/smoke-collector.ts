@@ -946,7 +946,7 @@ console.log("[chat: panel]");
   const wideCode = "```sh\ncurl -fsSL https://example.com/some/very/long/path/that/keeps/going/and/going/forever/script.sh | bash -s -- --flag\n\tindented with a tab\n```";
   const wideTr = "Çok uzun bir cümle: ğüşiöç İıŞ ÇÖÜ, hiçbir sözcük kesilmemeli; 日本語のテキストは幅が二倍です 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀 sonu.";
   const wideStore = createStore();
-  wideStore.addChat({ role: "user", text: `${wideTr}\n${wideUrl}\n/Users/someone/${"deep/".repeat(30)}file.txt` });
+  wideStore.addChat({ role: "user", text: `${wideTr}\n${wideUrl}\n/home/dev/${"deep/".repeat(30)}file.txt` });
   wideStore.addChat({ role: "assistant", text: `${wideTable}\n\n${wideCode}\n\n- ${wideTr}\n- ${wideUrl}\n> ${wideTr}\n# ${wideTr}\n\x1b[31mred\x1b]0;title\x07 escape ${wideUrl}` });
   wideStore.addChat({ role: "assistant", text: "| a | b |\n|---|---|\n| 1 | 2 |" });
   wideStore.addChat({ role: "assistant", text: "| no header row | second |\n| with a very long cell that has to wrap somewhere around here | x |", streaming: true });
@@ -961,7 +961,7 @@ console.log("[chat: panel]");
     const flat = renderChat(wideStore.state, w, 200, noTheme).map(plain).join("\n");
     const squeezed = flat.replace(/[\s↪]/g, "");
     check(`chat panel wrap ${w}: nothing is clipped (no ellipsis; URL, path, code, table cells and text survive whole)`,
-      !flat.includes("…") && squeezed.includes(wideUrl) && squeezed.includes("/Users/someone/") && squeezed.includes("file.txt")
+      !flat.includes("…") && squeezed.includes(wideUrl) && squeezed.includes("/home/dev/") && squeezed.includes("file.txt")
         && squeezed.includes("script.sh|bash-s----flag") && squeezed.includes("indentedwithatab") && squeezed.includes("20commitsaheadlocally") && squeezed.includes("typingin`/hudfull`),notpushed")
         && squeezed.includes("😀".repeat(20)) && squeezed.includes("ğüşiöçİıŞÇÖÜ,hiçbirsözcükkesilmemeli") && squeezed.includes("日本語のテキストは幅が二倍です")
         && squeezed.includes("redescape"), flat);
